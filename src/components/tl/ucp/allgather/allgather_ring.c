@@ -43,20 +43,31 @@ void ucc_tl_ucp_allgather_ring_progress(ucc_coll_task_t *coll_task)
     ucc_rank_t         sendto, recvfrom, sblock, rblock;
     int                step;
     void              *buf;
+    
 
     if (UCC_INPROGRESS == ucc_tl_ucp_test(task)) {
         return;
     }
+    printf("in progress top, rank = %d task->tagged.send_posted = %d task->tagged.recv_posted = %d \n",(int)trank, (int)task->tagged.send_posted,
+                (int)task->tagged.recv_posted);
+
     sendto   = ucc_ep_map_eval(task->subset.map, (trank + 1) % tsize);
     recvfrom = ucc_ep_map_eval(task->subset.map, (trank - 1 + tsize) % tsize);
+    
+    
+    uint32_t USE_CUDA = UCC_TL_UCP_TEAM_LIB(team)->cfg.allgather_use_cuda;
+    int iter = USE_CUDA ? tsize - 1 : tsize;
 
-    while (task->tagged.send_posted < tsize - 1) {
-        step = task->tagged.send_posted;
+    while (task->tagged.send_posted < iter) {
+        
+        step = USE_CUDA ? task->tagged.send_posted : task->tagged.send_posted - 1;
+
         sblock = task->allgather_ring.get_send_block(&task->subset, trank,
                                                      tsize, step);
         rblock = task->allgather_ring.get_recv_block(&task->subset, trank,
                                                      tsize, step);
         buf = PTR_OFFSET(rbuf, sblock * data_size);
+
         UCPCHECK_GOTO(
             ucc_tl_ucp_send_nb(buf, data_size, rmem, sendto, team, task),
             task, out);
@@ -64,6 +75,7 @@ void ucc_tl_ucp_allgather_ring_progress(ucc_coll_task_t *coll_task)
         UCPCHECK_GOTO(
             ucc_tl_ucp_recv_nb(buf, data_size, rmem, recvfrom, team, task),
             task, out);
+        
         if (UCC_INPROGRESS == ucc_tl_ucp_test(task)) {
             return;
         }
@@ -93,17 +105,28 @@ ucc_status_t ucc_tl_ucp_allgather_ring_start(ucc_coll_task_t *coll_task)
     UCC_TL_UCP_PROFILE_REQUEST_EVENT(coll_task, "ucp_allgather_ring_start", 0);
     ucc_tl_ucp_task_reset(task, UCC_INPROGRESS);
 
+    uint32_t USE_CUDA = UCC_TL_UCP_TEAM_LIB(team)->cfg.allgather_use_cuda;
+
     if (!UCC_IS_INPLACE(TASK_ARGS(task))) {
-        block = task->allgather_ring.get_send_block(&task->subset, trank, tsize,
-                                                    0);
-        status = ucc_mc_memcpy(PTR_OFFSET(rbuf, data_size * block),
+        block = task->allgather_ring.get_send_block(&task->subset, trank, tsize, 0);
+        if(USE_CUDA){
+            status = ucc_mc_memcpy(PTR_OFFSET(rbuf, data_size * block),
                                sbuf, data_size, rmem, smem);
-        if (ucc_unlikely(UCC_OK != status)) {
-            return status;
+            //printf("in use cuda: task->tagged.send_posted = %d \n", (int)task->tagged.send_posted);
+            if (ucc_unlikely(UCC_OK != status)) {
+                return status;
+            }
+        } else {
+            /* Loopback */
+            UCPCHECK_GOTO(ucc_tl_ucp_send_nb(sbuf, data_size, smem, trank, team, task),task, out);
+            //printf("start: trank = %d send task->tagged.send_posted = %d\n",(int)trank, (int)task->tagged.send_posted);
+            UCPCHECK_GOTO(ucc_tl_ucp_recv_nb(PTR_OFFSET(rbuf, data_size * block), data_size, rmem, trank, team, task),task, out);
+            //printf("start: trank = %d recv task->tagged.recv_posted = %d\n",(int)trank, (int)task->tagged.recv_posted);
         }
     }
-
     return ucc_progress_queue_enqueue(UCC_TL_CORE_CTX(team)->pq, &task->super);
+out:
+    return task->super.status;
 }
 
 ucc_status_t ucc_tl_ucp_allgather_ring_init_common(ucc_tl_ucp_task_t *task)
