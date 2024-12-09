@@ -110,6 +110,10 @@ ucc_status_t ucc_cuda_executor_task_finalize(ucc_ee_executor_task_t *task)
 ucc_status_t ucc_cuda_executor_start(ucc_ee_executor_t *executor,
                                      void *ee_context)
 {
+<<<<<<< HEAD
+=======
+    //printf("======== in executer start =========");
+>>>>>>> 479300a6
     ucc_ec_cuda_executor_t *eee = ucc_derived_of(executor,
                                                  ucc_ec_cuda_executor_t);
 
