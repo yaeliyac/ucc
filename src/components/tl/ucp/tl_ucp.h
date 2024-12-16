@@ -45,7 +45,6 @@ extern ucc_tl_ucp_iface_t ucc_tl_ucp;
 typedef struct ucc_tl_ucp_lib_config {
     ucc_tl_lib_config_t      super;
     uint32_t                 kn_radix;
-    uint32_t                 allgather_use_loopback;
     uint32_t                 fanin_kn_radix;
     uint32_t                 fanout_kn_radix;
     uint32_t                 barrier_kn_radix;
@@ -56,6 +55,7 @@ typedef struct ucc_tl_ucp_lib_config {
     ucc_mrange_uint_t        allreduce_sra_kn_radix;
     uint32_t                 reduce_scatter_kn_radix;
     uint32_t                 allgather_kn_radix;
+    int                      allgather_use_loopback;
     uint32_t                 bcast_kn_radix;
     ucc_mrange_uint_t        bcast_sag_kn_radix;
     uint32_t                 reduce_kn_radix;

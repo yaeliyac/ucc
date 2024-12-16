@@ -215,11 +215,11 @@ ucc_status_t ucc_tl_ucp_allgather_knomial_start(ucc_coll_task_t *coll_task)
                                               ct == UCC_COLL_TYPE_BCAST ?
                                               args->root : 0, size);
     ucc_ee_executor_task_args_t eargs = {0};
+    int                use_loopback = UCC_TL_UCP_TEAM_LIB(team)->cfg.allgather_use_loopback;
     ucc_status_t       status;
     ptrdiff_t          offset;
     ucc_ee_executor_t *exec;
     void              *rbuf;
-    int                use_loopback = UCC_TL_UCP_TEAM_LIB(team)->cfg.allgather_use_loopback;
 
     UCC_TL_UCP_PROFILE_REQUEST_EVENT(coll_task, "ucp_allgather_kn_start", 0);
     ucc_tl_ucp_task_reset(task, UCC_INPROGRESS);
