@@ -6,6 +6,7 @@
 #include "config.h"
 #include "tl_ucp.h"
 #include "allgather.h"
+#include "tl_ucp_sendrecv.h"
 
 #define ALLGATHER_MAX_PATTERN_SIZE (sizeof(UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR))
 
@@ -59,6 +60,7 @@ char *ucc_tl_ucp_allgather_score_str_get(ucc_tl_ucp_team_t *team)
     return str;
 }
 
+/*
 ucc_status_t loopback_self_copy(void* rbuf, void* sbuf, size_t data_size,
                                 ucc_memory_type_t rmem, ucc_memory_type_t smem,
                                 ucc_tl_ucp_task_t *task, ucc_tl_ucp_team_t *team, ucc_rank_t rank)
@@ -76,5 +78,6 @@ ucc_status_t loopback_self_copy(void* rbuf, void* sbuf, size_t data_size,
     }
     return UCC_OK;
 }
+*/
 
 
