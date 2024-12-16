@@ -140,13 +140,12 @@ ucc_status_t ucc_tl_ucp_allgather_sparbit_start(ucc_coll_task_t *coll_task)
                 return status;
             }
         } else {
-            status = loopback_self_copy(PTR_OFFSET(rbuf, data_size * trank),
-                               sbuf, data_size, rmem, smem, trank, team, task);
-            if (ucc_unlikely(UCC_OK != status)) {
-                return status;
+            /* Loopback */
+            UCPCHECK_GOTO(ucc_tl_ucp_send_nb(sbuf, data_size, smem, trank, team, task),task, out);
+            UCPCHECK_GOTO(ucc_tl_ucp_recv_nb(PTR_OFFSET(rbuf, data_size * trank), data_size, rmem, trank, team, task),task, out);
             }
         }
-    }
-
     return ucc_progress_queue_enqueue(UCC_TL_CORE_CTX(team)->pq, &task->super);
+out:
+    return task->super.status;
 }
