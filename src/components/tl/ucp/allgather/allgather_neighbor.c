@@ -109,6 +109,7 @@ void ucc_tl_ucp_allgather_neighbor_progress(ucc_coll_task_t *coll_task)
     while (counter < (tsize / 2)) {
         i        = counter;
         i_parity = i % 2;
+        printf("rank: %d, i = %d, i_parity = %d\n", (int)trank, (int)i, i_parity);
 
         tmprecv =
             PTR_OFFSET(rbuf, get_recv_from_rank(trank, tsize, i) * data_size);
@@ -123,13 +124,13 @@ void ucc_tl_ucp_allgather_neighbor_progress(ucc_coll_task_t *coll_task)
                                          neighbors[i_parity], team, task),
                       task, out);
         
+        if (UCC_INPROGRESS == ucc_tl_ucp_test(task)) {
+            return;
+        }
         if ((!UCC_IS_INPLACE(TASK_ARGS(task))) && use_loopback) {
             counter = task->tagged.send_posted - 1;
         } else {
             counter = task->tagged.send_posted;
-        }
-        if (UCC_INPROGRESS == ucc_tl_ucp_test(task)) {
-            return;
         }
     }
 
@@ -168,6 +169,9 @@ ucc_status_t ucc_tl_ucp_allgather_neighbor_start(ucc_coll_task_t *coll_task)
         if (ucc_unlikely(UCC_OK != status)) {
             return status;
         }
+    }
+
+    while (UCC_INPROGRESS == ucc_tl_ucp_test(task)) {
     }
 
     if (trank % 2) {
