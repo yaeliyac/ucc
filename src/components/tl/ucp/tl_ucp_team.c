@@ -94,12 +94,11 @@ UCC_CLASS_INIT_FUNC(ucc_tl_ucp_team_t, ucc_base_context_t *tl_context,
 
     if (self->topo && !UCC_TL_IS_SERVICE_TEAM(self)) {
         tsize = UCC_TL_TEAM_SIZE(self);
-        max_ppn = ucc_topo_max_ppn(self->topo);
 
         min_radix = ucc_min(tsize, 3);
         max_radix = tsize;
         self->opt_radix = ucc_kn_get_opt_radix(tsize, min_radix, max_radix);
-        if (max_ppn == 1) {
+        if (ucc_topo_is_single_ppn(self->topo)) {
             self->opt_radix_host = self->opt_radix;
         } else {
             if (self->topo->topo->sock_bound) {
