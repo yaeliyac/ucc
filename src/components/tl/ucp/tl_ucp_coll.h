@@ -205,6 +205,7 @@ typedef struct ucc_tl_ucp_task {
         struct {
             uint32_t                i;
             int                     data_expected;
+            ucc_tl_ucp_copy_task_t *copy_task;
         } allgather_sparbit;
         struct {
             ucc_rank_t              dist;

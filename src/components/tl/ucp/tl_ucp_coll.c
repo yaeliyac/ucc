@@ -258,6 +258,9 @@ ucc_status_t ucc_tl_ucp_alg_id_to_init(int alg_id, const char *alg_id_str,
 
     switch (coll_type) {
     case UCC_COLL_TYPE_ALLGATHER:
+        if ((mem_type == UCC_MEMORY_TYPE_CUDA) || (mem_type == UCC_MEMORY_TYPE_CUDA_MANAGED)) {
+        alg_id = UCC_TL_UCP_ALLGATHER_ALG_KNOMIAL;
+        }
         switch (alg_id) {
         case UCC_TL_UCP_ALLGATHER_ALG_KNOMIAL:
             *init = ucc_tl_ucp_allgather_knomial_init;
