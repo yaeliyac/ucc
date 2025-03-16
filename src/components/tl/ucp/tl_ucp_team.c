@@ -47,7 +47,7 @@ UCC_CLASS_INIT_FUNC(ucc_tl_ucp_team_t, ucc_base_context_t *tl_context,
     ucc_tl_ucp_context_t *ctx = ucc_derived_of(tl_context,
                                                ucc_tl_ucp_context_t);
     ucc_kn_radix_t max_radix, min_radix;
-    ucc_rank_t     tsize, max_ppn;
+    ucc_rank_t     tsize;
     ucc_status_t   status;
 
     UCC_CLASS_CALL_SUPER_INIT(ucc_tl_team_t, &ctx->super, params);

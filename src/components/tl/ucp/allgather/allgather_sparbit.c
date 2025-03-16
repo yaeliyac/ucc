@@ -6,7 +6,6 @@
 #include "config.h"
 #include "tl_ucp.h"
 #include "allgather.h"
-#include "tl_ucp_copy.h"
 #include "core/ucc_progress_queue.h"
 #include "tl_ucp_sendrecv.h"
 #include "utils/ucc_math.h"
@@ -112,19 +111,18 @@ out:
 
 ucc_status_t ucc_tl_ucp_allgather_sparbit_start(ucc_coll_task_t *coll_task)
 {
-    ucc_tl_ucp_task_t     *task      = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
-    ucc_tl_ucp_team_t     *team      = TASK_TEAM(task);
-    ucc_tl_ucp_context_t  *ctx       = UCC_TL_UCP_TEAM_CTX(team);
-    size_t                 count     = TASK_ARGS(task).dst.info.count;
-    void                  *sbuf      = TASK_ARGS(task).src.info.buffer;
-    void                  *rbuf      = TASK_ARGS(task).dst.info.buffer;
-    ucc_memory_type_t      smem      = TASK_ARGS(task).src.info.mem_type;
-    ucc_memory_type_t      rmem      = TASK_ARGS(task).dst.info.mem_type;
-    ucc_datatype_t         dt        = TASK_ARGS(task).dst.info.datatype;
-    ucc_rank_t             trank     = UCC_TL_TEAM_RANK(team);
-    ucc_rank_t             tsize     = UCC_TL_TEAM_SIZE(team);
-    size_t                 data_size = (count / tsize) * ucc_dt_size(dt);
-    ucc_status_t           status;
+    ucc_tl_ucp_task_t *task      = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
+    ucc_tl_ucp_team_t *team      = TASK_TEAM(task);
+    size_t             count     = TASK_ARGS(task).dst.info.count;
+    void              *sbuf      = TASK_ARGS(task).src.info.buffer;
+    void              *rbuf      = TASK_ARGS(task).dst.info.buffer;
+    ucc_memory_type_t  smem      = TASK_ARGS(task).src.info.mem_type;
+    ucc_memory_type_t  rmem      = TASK_ARGS(task).dst.info.mem_type;
+    ucc_datatype_t     dt        = TASK_ARGS(task).dst.info.datatype;
+    ucc_rank_t         trank     = UCC_TL_TEAM_RANK(team);
+    ucc_rank_t         tsize     = UCC_TL_TEAM_SIZE(team);
+    size_t             data_size = (count / tsize) * ucc_dt_size(dt);
+    ucc_status_t       status;
 
     UCC_TL_UCP_PROFILE_REQUEST_EVENT(coll_task, "ucp_allgather_sparbit_start",
                                      0);
@@ -133,10 +131,9 @@ ucc_status_t ucc_tl_ucp_allgather_sparbit_start(ucc_coll_task_t *coll_task)
     task->allgather_sparbit.data_expected = 1;
 
     if (!UCC_IS_INPLACE(TASK_ARGS(task))) {
-        status = ctx->copy.post(PTR_OFFSET(rbuf, data_size * trank),
-                                rmem, sbuf, smem, data_size, task, &task->allgather_sparbit.copy_task);
+        status = ucc_mc_memcpy(PTR_OFFSET(rbuf, data_size * trank), sbuf,
+                               data_size, rmem, smem);
         if (ucc_unlikely(UCC_OK != status)) {
-            task->super.status = status;
             return status;
         }
     }
