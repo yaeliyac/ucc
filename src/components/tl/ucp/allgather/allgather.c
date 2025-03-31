@@ -6,9 +6,10 @@
 #include "config.h"
 #include "tl_ucp.h"
 #include "allgather.h"
+#include "../../../utils/ucc_string.h"
 
 #define ALLGATHER_MAX_PATTERN_SIZE                                             \
-    (sizeof(UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN))
+    (sizeof(UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN_CUDA) *2)
 
 ucc_base_coll_alg_info_t
     ucc_tl_ucp_allgather_algs[UCC_TL_UCP_ALLGATHER_ALG_LAST + 1] = {
@@ -42,12 +43,16 @@ ucc_status_t ucc_tl_ucp_allgather_init(ucc_tl_ucp_task_t *task)
 
 char *ucc_tl_ucp_allgather_score_str_get(ucc_tl_ucp_team_t *team)
 {
-    int                   max_size = ALLGATHER_MAX_PATTERN_SIZE;
-    int                   algo_num = UCC_TL_TEAM_SIZE(team) % 2
-                                         ? UCC_TL_UCP_ALLGATHER_ALG_RING
-                                         : UCC_TL_UCP_ALLGATHER_ALG_NEIGHBOR;
-    char *                str      = ucc_malloc(max_size * sizeof(char));
-    ucc_tl_ucp_context_t *ctx      = UCC_TL_UCP_TEAM_CTX(team);
+    int                   max_size       = ALLGATHER_MAX_PATTERN_SIZE;
+    int                   algo_num       = UCC_TL_TEAM_SIZE(team) % 2
+                                               ? UCC_TL_UCP_ALLGATHER_ALG_RING
+                                               : UCC_TL_UCP_ALLGATHER_ALG_NEIGHBOR;
+    char *                str            = ucc_malloc(max_size * sizeof(char));
+    char *                cuda_str       = ucc_malloc(max_size * sizeof(char));
+    char *                non_cuda_str   = ucc_malloc(max_size * sizeof(char));
+    ucc_tl_ucp_context_t *ctx            = UCC_TL_UCP_TEAM_CTX(team);
+    uint64_t              cuda_types     = ctx->ucp_memory_types & (UCC_BIT(UCC_MEMORY_TYPE_CUDA) | UCC_BIT(UCC_MEMORY_TYPE_CUDA_MANAGED));
+    uint64_t              non_cuda_types = ctx->ucp_memory_types & (~cuda_types);
     ucc_sbgp_t *sbgp;
 
     if (team->cfg.use_reordering) {
@@ -58,13 +63,12 @@ char *ucc_tl_ucp_allgather_score_str_get(ucc_tl_ucp_team_t *team)
     }
 
     if (team->topo && ucc_topo_is_single_ppn(team->topo)) {
-        if ((ctx->ucp_memory_types & UCC_BIT(UCC_MEMORY_TYPE_CUDA)) ||
-            (ctx->ucp_memory_types & UCC_BIT(UCC_MEMORY_TYPE_CUDA_MANAGED))) {
-            ucc_snprintf_safe(str, max_size,
-                              UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN,
-                              algo_num);
-            return str;
-        }
+        ucc_mtype_map_to_str(cuda_types,",", cuda_str, max_size);
+        ucc_mtype_map_to_str(non_cuda_types,",", non_cuda_str, max_size);
+        ucc_snprintf_safe(str, max_size,
+                            UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN_CUDA,
+                            cuda_str, non_cuda_str, algo_num);
+        return str;
     }
     ucc_snprintf_safe(str, max_size,
                       UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR, algo_num);

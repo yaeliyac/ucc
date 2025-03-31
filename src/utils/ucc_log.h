@@ -211,15 +211,15 @@ static inline const char* ucc_mem_type_str(ucc_memory_type_t ct)
 {
     switch((int)ct) {
     case UCC_MEMORY_TYPE_HOST:
-        return "Host";
+        return "host";
     case UCC_MEMORY_TYPE_CUDA:
-        return "Cuda";
+        return "cuda";
     case UCC_MEMORY_TYPE_CUDA_MANAGED:
-        return "CudaManaged";
+        return "cuda_managed";
     case UCC_MEMORY_TYPE_ROCM:
-        return "Rocm";
+        return "rocm";
     case UCC_MEMORY_TYPE_ROCM_MANAGED:
-        return "RocmManaged";
+        return "rocm_managed";
     case UCC_MEMORY_TYPE_ASYMMETRIC:
         return "asymmetric";
     case UCC_MEMORY_TYPE_NOT_APPLY:

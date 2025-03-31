@@ -23,8 +23,8 @@ extern ucc_base_coll_alg_info_t
 #define UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR                            \
     "allgather:0-4k:@0#allgather:4k-inf:@%d"
 
-#define UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN                       \
-    "allgather:cuda:@0#allgather:0-4k:@0#allgather:4k-inf:@%d"
+#define UCC_TL_UCP_ALLGATHER_DEFAULT_ALG_SELECT_STR_1PPN_CUDA                       \
+    "allgather:0-4k:@0#allgather:4k-inf:%s:@0#allgather:4k-inf:%s:@%d"
 
 char *ucc_tl_ucp_allgather_score_str_get(ucc_tl_ucp_team_t *team);
 
