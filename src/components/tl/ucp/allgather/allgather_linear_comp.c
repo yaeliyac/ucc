@@ -19,6 +19,24 @@ nvcompANSDataType_t ucc_to_nvcompans_dtype[] = {
     [UCC_DT_PREDEFINED_ID(UCC_DT_FLOAT16)] = 1,
 };
 
+void ucc_tl_ucp_recv_completion_allgather(void *request, ucs_status_t status,
+                                      const ucp_tag_recv_info_t *info, /* NOLINT */
+                                      void *user_data)
+{
+    ucc_tl_ucp_task_t *task = (ucc_tl_ucp_task_t *)user_data;
+    ucc_rank_t sender_rank;
+    if (ucc_unlikely(UCS_OK != status)) {
+        tl_error(UCC_TASK_LIB(task), "failure in recv completion %s",
+                 ucs_status_string(status));
+        task->super.status = ucs_status_to_ucc_status(status);
+    }
+
+    sender_rank = UCC_TL_UCP_GET_SENDER(info->sender_tag);
+    task->allgather_linear_comp.metadata->device_compressed_chunk_bytes[sender_rank] = info->length;
+    ++task->tagged.recv_completed;
+    ucp_request_free(request);
+}
+
 void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
 {
     ucc_tl_ucp_task_t    *task      = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
@@ -60,7 +78,7 @@ void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
             peer    = (trank + 1 + task->tagged.send_posted) % tsize;
             /* Send my data to peer */
             UCPCHECK_GOTO(
-                ucc_tl_ucp_send_nb(tmpsend, data_size, smem, peer, team, task),
+                ucc_tl_ucp_send_nb(tmpsend, metadata->device_compressed_chunk_bytes[0], smem, peer, team, task),
                 task, err);
             polls = 0;
         }
@@ -71,8 +89,10 @@ void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
                 nreqs)) {
             peer    = (tsize + trank - 1 - task->tagged.recv_posted) % tsize;
             tmprecv = PTR_OFFSET(rbuf_compressed, peer * data_size);
+
             UCPCHECK_GOTO(
-                ucc_tl_ucp_recv_nb(tmprecv, data_size, rmem, peer, team, task),
+                ucc_tl_ucp_recv_cb(tmprecv, data_size, rmem, peer, team, task,
+                                  ucc_tl_ucp_recv_completion_allgather, task),
                 task, err);
             polls = 0;
         }
@@ -100,9 +120,9 @@ void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
         task->allgather_linear.copy_task = NULL;
     }
 
+    metadata->device_compressed_chunk_bytes[trank] = metadata->device_compressed_chunk_bytes[0];
     for (int i = 0; i < tsize; i++) {
         metadata->device_compressed_chunk_ptrs[i] = PTR_OFFSET(rbuf_compressed, i * data_size);
-        metadata->device_compressed_chunk_bytes[i] = data_size;
         metadata->device_uncompressed_chunk_ptrs[i] = PTR_OFFSET(rbuf, i * data_size);
         metadata->device_uncompressed_chunk_bytes[i] = data_size;
     }
