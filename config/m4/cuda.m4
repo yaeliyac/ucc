@@ -47,7 +47,7 @@ AS_IF([test "x$cuda_checked" != "xyes"],
                [check_cuda_dir="$with_cuda"
                 AS_IF([test -d "$with_cuda/lib64"], [libsuff="64"], [libsuff=""])
                 check_cuda_libdir="$with_cuda/lib$libsuff"
-                CUDA_CPPFLAGS="-I$with_cuda/include"
+                CUDA_CPPFLAGS="-I$with_cuda/include -I/usr/include/nvcomp"
                 CUDA_LDFLAGS="-L$check_cuda_libdir -L$check_cuda_libdir/stubs"])
          AS_IF([test ! -z "$with_cuda_libdir" -a "x$with_cuda_libdir" != "xyes"],
                [check_cuda_libdir="$with_cuda_libdir"
@@ -64,6 +64,10 @@ AS_IF([test "x$cuda_checked" != "xyes"],
          AS_IF([test "x$cuda_happy" = "xyes"],
                [AC_CHECK_LIB([cudart], [cudaGetDeviceCount],
                              [CUDA_LIBS="$CUDA_LIBS -lcudart"], [cuda_happy="no"])])
+
+         AS_IF([test "x$cuda_happy" = "xyes"],
+               [AC_CHECK_LIB([nvcomp], [nvcompBatchedSnappyCompressGetTempSize],
+                             [CUDA_LIBS="$CUDA_LIBS -lnvcomp"], [cuda_happy="no"])])      
 
         # Check nvml header files
         AC_CHECK_HEADERS([nvml.h],
