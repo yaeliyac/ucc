@@ -112,6 +112,8 @@ UCC_CLASS_INIT_FUNC(ucc_tl_ucp_team_t, ucc_base_context_t *tl_context,
                  self->opt_radix, self->opt_radix_host);
     }
 
+    cudaStreamCreate(&self->stream);
+
     tl_debug(tl_context->lib, "posted tl team: %p", self);
     return UCC_OK;
 }
