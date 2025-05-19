@@ -106,7 +106,7 @@ void ucc_tl_ucp_alltoall_pairwise_progress(ucc_coll_task_t *coll_task)
                 nreqs)) {
             peer = get_send_peer(grank, gsize, task->tagged.send_posted);
             UCPCHECK_GOTO(ucc_tl_ucp_send_nb((void *)(sbuf + peer * data_size),
-                                             data_size, smem, peer, team, task),
+                                             metadata->device_compressed_chunk_bytes[peer], smem, peer, team, task),
                           task, out);
             polls = 0;
         }
