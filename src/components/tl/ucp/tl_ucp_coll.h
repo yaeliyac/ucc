@@ -15,6 +15,8 @@
 #include "components/mc/base/ucc_mc_base.h"
 #include "components/ec/ucc_ec.h"
 #include "tl_ucp_tag.h"
+#include <nvcomp/nvcomp.h>
+#include <nvcomp_12/nvcomp/shared_types.h>
 
 #define UCC_UUNITS_AUTO_RADIX 4
 #define UCC_TL_UCP_TASK_PLUGIN_MAX_DATA 128
@@ -94,6 +96,7 @@ typedef struct ucc_tl_ucp_alltoall_pairwise_metadata {
     size_t *device_uncompressed_chunk_bytes;
     void ** device_compressed_chunk_ptrs;
     size_t *device_compressed_chunk_bytes;
+    nvcompStatus_t *status;
 } ucc_tl_ucp_alltoall_pairwise_metadata_t;
 
 
@@ -281,12 +284,9 @@ typedef struct ucc_tl_ucp_task {
             int                     phase;
         } alltoall_bruck;
         struct {
-            void                   *scratch;
-            ucc_mc_buffer_header_t *scratch_mc_header;
-            ucc_mc_buffer_header_t *compressed_mc_header;
             ucc_tl_ucp_alltoall_pairwise_metadata_t *metadata;
-            ucc_ee_executor_task_t *etask;
-            ucc_ee_executor_t      *executor;
+            ucc_mc_buffer_header_t                  *src_compressed;
+            ucc_mc_buffer_header_t                  *dst_compressed;
         } alltoall_pairwise;
 
         char                        plugin_data[UCC_TL_UCP_TASK_PLUGIN_MAX_DATA];
