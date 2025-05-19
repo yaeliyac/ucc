@@ -238,6 +238,23 @@ static unsigned long get_num_reqs(const ucc_tl_ucp_team_t *team)
     return reqs;
 }
 
+ucc_status_t ucc_tl_ucp_allgather_linear_comp_finalize(ucc_coll_task_t *coll_task)
+{
+    ucc_tl_ucp_task_t *task = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
+
+    cudaFreeHost(task->allgather_linear_comp.metadata->device_uncompressed_chunk_ptrs);
+    cudaFreeHost(task->allgather_linear_comp.metadata->device_uncompressed_chunk_bytes);
+    cudaFreeHost(task->allgather_linear_comp.metadata->device_compressed_chunk_ptrs);
+    cudaFreeHost(task->allgather_linear_comp.metadata->device_compressed_chunk_bytes);
+    cudaFreeHost(task->allgather_linear_comp.metadata->status);
+    cudaFreeHost(task->allgather_linear_comp.metadata);
+    ucc_mc_free(task->allgather_linear_comp.src_compressed);
+    ucc_mc_free(task->allgather_linear_comp.dst_compressed);
+    ucc_mc_free(task->allgather_linear_comp.tmp_memory);
+    return ucc_tl_ucp_coll_finalize(coll_task);
+}
+
+
 ucc_status_t ucc_tl_ucp_allgather_linear_comp_init(
     ucc_base_coll_args_t *coll_args, ucc_base_team_t *team,
     ucc_coll_task_t **task_h)
@@ -285,6 +302,8 @@ ucc_status_t ucc_tl_ucp_allgather_linear_comp_init(
     task->super.progress = ucc_tl_ucp_allgather_linear_comp_progress;
     task->allgather_linear.nreqs =
         nreqs == 0 ? UCC_TL_TEAM_SIZE(tl_team) - 1 : nreqs;
+
+    task->super.finalize = ucc_tl_ucp_allgather_linear_comp_finalize;
     *task_h = &task->super;
 
     return UCC_OK;
