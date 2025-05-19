@@ -89,6 +89,14 @@ enum ucc_tl_ucp_task_flags {
     UCC_TL_UCP_TASK_FLAG_SUBSET = UCC_BIT(0),
 };
 
+typedef struct ucc_tl_ucp_alltoall_pairwise_metadata {
+    void **device_uncompressed_chunk_ptrs;
+    size_t *device_uncompressed_chunk_bytes;
+    void ** device_compressed_chunk_ptrs;
+    size_t *device_compressed_chunk_bytes;
+} ucc_tl_ucp_alltoall_pairwise_metadata_t;
+
+
 typedef struct ucc_tl_ucp_allreduce_sw_pipeline
     ucc_tl_ucp_allreduce_sw_pipeline;
 typedef struct ucc_tl_ucp_allreduce_sw_host_allgather
@@ -276,6 +284,7 @@ typedef struct ucc_tl_ucp_task {
             void                   *scratch;
             ucc_mc_buffer_header_t *scratch_mc_header;
             ucc_mc_buffer_header_t *compressed_mc_header;
+            ucc_tl_ucp_alltoall_pairwise_metadata_t *metadata;
             ucc_ee_executor_task_t *etask;
             ucc_ee_executor_t      *executor;
         } alltoall_pairwise;
