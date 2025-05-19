@@ -17,7 +17,8 @@ allgather =                        \
 	allgather/allgather_bruck.c    \
 	allgather/allgather_sparbit.c  \
 	allgather/allgather_linear.c   \
-	allgather/allgather_knomial.c
+	allgather/allgather_knomial.c  \
+	allgather/allgather_linear_comp.c
 
 allgatherv =                        \
 	allgatherv/allgatherv.h         \

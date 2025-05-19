@@ -216,7 +216,7 @@ typedef struct ucc_tl_ucp_context {
 } ucc_tl_ucp_context_t;
 UCC_CLASS_DECLARE(ucc_tl_ucp_context_t, const ucc_base_context_params_t *,
                     const ucc_base_config_t *);
-  
+
 extern ucc_config_field_t ucc_tl_ucp_lib_config_table[];
 
 #define UCC_TL_UCP_SUPPORTED_COLLS                                             \

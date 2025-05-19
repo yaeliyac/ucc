@@ -11,14 +11,12 @@
 #include "utils/ucc_math.h"
 #include "tl_ucp_sendrecv.h"
 
-#include <nvcomp/nvcomp.h>
-#include "nvcomp/bitcomp.h"
 #include "cuda.h"
+#include <nvcomp/bitcomp.h>
 
 /* TODO: add as parameters */
 #define MSG_MEDIUM 66000
 #define NP_THRESH 32
-
 
 nvcompType_t ucc_to_nvcomp_dtype[] = {
     [UCC_DT_PREDEFINED_ID(UCC_DT_INT8)] = NVCOMP_TYPE_CHAR,
@@ -83,7 +81,7 @@ void ucc_tl_ucp_alltoall_pairwise_comp_progress(ucc_coll_task_t *coll_task)
     int                polls = 0, i;
     ucc_rank_t         peer, nreqs;
     size_t             data_size;
-    ucc_tl_ucp_alltoall_pairwise_metadata_t *metadata = task->alltoall_pairwise.metadata;
+    ucc_tl_ucp_compress_metadata_t *metadata = task->alltoall_pairwise.metadata;
 
     nreqs     = get_num_posts(team, &TASK_ARGS(task));
     data_size = (size_t)(TASK_ARGS(task).src.info.count / gsize) *
@@ -149,7 +147,7 @@ out:
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_finalize(ucc_coll_task_t *coll_task)
 {
     ucc_tl_ucp_task_t *task = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
- 
+
     cudaFreeHost(task->alltoall_pairwise.metadata->device_uncompressed_chunk_ptrs);
     cudaFreeHost(task->alltoall_pairwise.metadata->device_uncompressed_chunk_bytes);
     cudaFreeHost(task->alltoall_pairwise.metadata->device_compressed_chunk_ptrs);
@@ -160,12 +158,12 @@ ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_finalize(ucc_coll_task_t *coll_ta
     ucc_mc_free(task->alltoall_pairwise.dst_compressed);
     return ucc_tl_ucp_coll_finalize(coll_task);
 }
- 
+
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_start(ucc_coll_task_t *coll_task)
 {
     ucc_tl_ucp_task_t *task = ucc_derived_of(coll_task, ucc_tl_ucp_task_t);
     ucc_tl_ucp_team_t *team = TASK_TEAM(task);
-    ucc_tl_ucp_alltoall_pairwise_metadata_t *metadata = task->alltoall_pairwise.metadata;
+    ucc_tl_ucp_compress_metadata_t *metadata = task->alltoall_pairwise.metadata;
     ucc_rank_t tsize = UCC_TL_TEAM_SIZE(team);
     size_t msg_size = TASK_ARGS(task).src.info.count * ucc_dt_size(TASK_ARGS(task).src.info.datatype) / tsize;
     void *src_compressed = task->alltoall_pairwise.src_compressed->addr;
@@ -238,7 +236,7 @@ ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_init_common(ucc_tl_ucp_task_t *ta
 
     ucc_debug("ALLTOALL_PAIRWISE_COMP_INIT_COMMON");
 
-    cudaHostAlloc((void**)&task->alltoall_pairwise.metadata, sizeof(ucc_tl_ucp_alltoall_pairwise_metadata_t), cudaHostAllocDefault);
+    cudaHostAlloc((void**)&task->alltoall_pairwise.metadata, sizeof(ucc_tl_ucp_compress_metadata_t), cudaHostAllocDefault);
     cudaHostAlloc((void**)&task->alltoall_pairwise.metadata->device_uncompressed_chunk_ptrs, sizeof(void*) * tsize, cudaHostAllocDefault);
     cudaHostAlloc((void**)&task->alltoall_pairwise.metadata->device_uncompressed_chunk_bytes, sizeof(size_t) * tsize, cudaHostAllocDefault);
     cudaHostAlloc((void**)&task->alltoall_pairwise.metadata->device_compressed_chunk_ptrs, sizeof(void*) * tsize, cudaHostAllocDefault);
@@ -250,8 +248,8 @@ ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_init_common(ucc_tl_ucp_task_t *ta
                  args->src.info.count * ucc_dt_size(args->src.info.datatype), UCC_MEMORY_TYPE_CUDA);
     ucc_mc_alloc(&task->alltoall_pairwise.dst_compressed,
                  args->dst.info.count * ucc_dt_size(args->dst.info.datatype), UCC_MEMORY_TYPE_CUDA);
- 
+
     task->super.finalize = ucc_tl_ucp_alltoall_pairwise_comp_finalize;
- 
+
     return UCC_OK;
 }

@@ -15,8 +15,7 @@
 #include "components/mc/base/ucc_mc_base.h"
 #include "components/ec/ucc_ec.h"
 #include "tl_ucp_tag.h"
-#include <nvcomp/nvcomp.h>
-#include <nvcomp_12/nvcomp/shared_types.h>
+#include <nvcomp.h>
 
 #define UCC_UUNITS_AUTO_RADIX 4
 #define UCC_TL_UCP_TASK_PLUGIN_MAX_DATA 128
@@ -91,13 +90,14 @@ enum ucc_tl_ucp_task_flags {
     UCC_TL_UCP_TASK_FLAG_SUBSET = UCC_BIT(0),
 };
 
-typedef struct ucc_tl_ucp_alltoall_pairwise_metadata {
+typedef struct ucc_tl_ucp_compress_metadata {
     void **device_uncompressed_chunk_ptrs;
     size_t *device_uncompressed_chunk_bytes;
     void ** device_compressed_chunk_ptrs;
     size_t *device_compressed_chunk_bytes;
     nvcompStatus_t *status;
-} ucc_tl_ucp_alltoall_pairwise_metadata_t;
+    size_t tmp_size;
+} ucc_tl_ucp_compress_metadata_t;
 
 
 typedef struct ucc_tl_ucp_allreduce_sw_pipeline
@@ -214,6 +214,14 @@ typedef struct ucc_tl_ucp_task {
             ucc_tl_ucp_copy_task_t *copy_task;
         } allgather_linear;
         struct {
+            int                     nreqs; // number of send/recv requests in progress
+            ucc_tl_ucp_copy_task_t *copy_task;
+            ucc_tl_ucp_compress_metadata_t *metadata;
+            ucc_mc_buffer_header_t *src_compressed;
+            ucc_mc_buffer_header_t *dst_compressed;
+            ucc_mc_buffer_header_t *tmp_memory;
+        } allgather_linear_comp;
+        struct {
             ucc_mc_buffer_header_t *scratch_header;
             size_t                  scratch_size;
         } allgather_bruck;
@@ -284,9 +292,9 @@ typedef struct ucc_tl_ucp_task {
             int                     phase;
         } alltoall_bruck;
         struct {
-            ucc_tl_ucp_alltoall_pairwise_metadata_t *metadata;
-            ucc_mc_buffer_header_t                  *src_compressed;
-            ucc_mc_buffer_header_t                  *dst_compressed;
+            ucc_tl_ucp_compress_metadata_t *metadata;
+            ucc_mc_buffer_header_t         *src_compressed;
+            ucc_mc_buffer_header_t         *dst_compressed;
         } alltoall_pairwise;
 
         char                        plugin_data[UCC_TL_UCP_TASK_PLUGIN_MAX_DATA];
