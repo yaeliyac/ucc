@@ -365,6 +365,9 @@ ucc_status_t ucc_tl_ucp_alg_id_to_init(int alg_id, const char *alg_id_str,
         case UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE:
             *init = ucc_tl_ucp_alltoall_pairwise_init;
             break;
+        case UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE_COMP:
+            *init = ucc_tl_ucp_alltoall_pairwise_comp_init;
+            break;
         case UCC_TL_UCP_ALLTOALL_ALG_BRUCK:
             *init = ucc_tl_ucp_alltoall_bruck_init;
             break;

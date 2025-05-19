@@ -11,6 +11,9 @@
 #define ALLTOALL_MAX_PATTERN_SIZE (sizeof(UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN) + 32)
 #define ALLTOALL_DEFAULT_ALG_SWITCH 129
 
+ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_start(ucc_coll_task_t *task);
+void ucc_tl_ucp_alltoall_pairwise_comp_progress(ucc_coll_task_t *task);
+
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_start(ucc_coll_task_t *task);
 void ucc_tl_ucp_alltoall_pairwise_progress(ucc_coll_task_t *task);
 
@@ -35,6 +38,10 @@ ucc_base_coll_alg_info_t
             {.id   = UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE,
              .name = "pairwise",
              .desc = "pairwise two-sided implementation"},
+        [UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE_COMP] =
+            {.id   = UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE_COMP,
+             .name = "pairwise_comp",
+             .desc = "pairwise two-sided implementation with compression"},
         [UCC_TL_UCP_ALLTOALL_ALG_BRUCK] =
             {.id   = UCC_TL_UCP_ALLTOALL_ALG_BRUCK,
              .name = "bruck",
@@ -67,6 +74,22 @@ ucc_status_t ucc_tl_ucp_alltoall_pairwise_init(ucc_base_coll_args_t *coll_args,
     task                 = ucc_tl_ucp_init_task(coll_args, team);
     *task_h              = &task->super;
     status = ucc_tl_ucp_alltoall_pairwise_init_common(task);
+out:
+    return status;
+}
+
+ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_init(ucc_base_coll_args_t *coll_args,
+                                                    ucc_base_team_t *team,
+                                                    ucc_coll_task_t **task_h)
+{
+    ucc_tl_ucp_team_t *tl_team = ucc_derived_of(team, ucc_tl_ucp_team_t);
+    ucc_tl_ucp_task_t *task;
+    ucc_status_t       status;
+
+    ALLTOALL_TASK_CHECK(coll_args->args, tl_team);
+    task                 = ucc_tl_ucp_init_task(coll_args, team);
+    *task_h              = &task->super;
+    status = ucc_tl_ucp_alltoall_pairwise_comp_init_common(task);
 out:
     return status;
 }

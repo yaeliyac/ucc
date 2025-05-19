@@ -12,6 +12,7 @@
 
 enum {
     UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE,
+    UCC_TL_UCP_ALLTOALL_ALG_PAIRWISE_COMP,
     UCC_TL_UCP_ALLTOALL_ALG_BRUCK,
     UCC_TL_UCP_ALLTOALL_ALG_ONESIDED,
     UCC_TL_UCP_ALLTOALL_ALG_LAST
@@ -28,10 +29,14 @@ char* ucc_tl_ucp_alltoall_score_str_get(ucc_tl_ucp_team_t *team);
 ucc_status_t ucc_tl_ucp_alltoall_init(ucc_tl_ucp_task_t *task);
 
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_init_common(ucc_tl_ucp_task_t *task);
-
+ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_init_common(ucc_tl_ucp_task_t *task);
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_init(ucc_base_coll_args_t *coll_args,
                                                ucc_base_team_t *team,
                                                ucc_coll_task_t **task_h);
+
+ucc_status_t ucc_tl_ucp_alltoall_pairwise_comp_init(ucc_base_coll_args_t *coll_args,
+                                                    ucc_base_team_t      *team,
+                                                    ucc_coll_task_t     **task_h);
 
 ucc_status_t ucc_tl_ucp_alltoall_bruck_init(ucc_base_coll_args_t *coll_args,
                                             ucc_base_team_t *team,
