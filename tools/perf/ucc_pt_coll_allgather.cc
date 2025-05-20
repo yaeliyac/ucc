@@ -49,7 +49,8 @@ ucc_status_t ucc_pt_coll_allgather::init_args(size_t single_rank_count,
     size_t           size_src = single_rank_count * dt_size;
     size_t           size_dst = comm->get_size() * single_rank_count * dt_size;
     ucc_status_t     st;
-
+    std::string vector_bin_file = getenv("VECTOR_BIN_FILE");
+    
     args = coll_args;
     args.dst.info.count = single_rank_count * comm->get_size();
     UCCCHECK_GOTO(ucc_pt_alloc(&dst_header, size_dst, args.dst.info.mem_type),
@@ -61,6 +62,13 @@ ucc_status_t ucc_pt_coll_allgather::init_args(size_t single_rank_count,
             ucc_pt_alloc(&src_header, size_src, args.src.info.mem_type),
             free_dst, st);
         args.src.info.buffer = src_header->addr;
+        FILE *fp = fopen(vector_bin_file.c_str(), "rb");
+        if (!fp) {
+            ucc_error("Failed to open vector bin file %s", vector_bin_file.c_str());
+            return UCC_ERR_INVALID_PARAM;
+        }
+        fread(args.src.info.buffer, 1, size_src, fp);
+        fclose(fp);
     }
     return UCC_OK;
 free_dst:

@@ -11,6 +11,8 @@
 #include "components/mc/ucc_mc.h"
 #include "cuda.h"
 #include <nvcomp/ans.h>
+#include <time.h>
+
 
 
 nvcompANSDataType_t ucc_to_nvcompans_dtype[] = {
@@ -127,6 +129,10 @@ void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
         metadata->device_uncompressed_chunk_bytes[i] = data_size;
     }
 
+    clock_t start, end;
+    double decompress_time;
+
+    start = clock();
     nvcompStatus_t compstatus = nvcompBatchedANSDecompressAsync(
         (const void * const*)metadata->device_compressed_chunk_ptrs,
         metadata->device_compressed_chunk_bytes,
@@ -139,10 +145,16 @@ void ucc_tl_ucp_allgather_linear_comp_progress(ucc_coll_task_t *coll_task)
         metadata->status,
         team->stream);
     cudaStreamSynchronize(team->stream);
+    end = clock();
+    decompress_time = (double)(end - start) / CLOCKS_PER_SEC;
+
     if (compstatus != nvcompSuccess) {
         ucc_error("nvcomp error: %d\n", (compstatus));
         return;
     }
+
+    ucc_print("rank %d: decompression took %f seconds, %zu B -> %zu B\n", trank, 
+              decompress_time, metadata->device_compressed_chunk_bytes[0], metadata->device_uncompressed_chunk_bytes[0]);
     UCC_TL_UCP_PROFILE_REQUEST_EVENT(coll_task, "ucp_allgather_linear_done", 0);
     return;
 err:
@@ -168,6 +180,8 @@ ucc_status_t ucc_tl_ucp_allgather_linear_comp_start(ucc_coll_task_t *coll_task)
     nvcompBatchedANSOpts_t opts = {0};
     void *sbuf_compressed = task->allgather_linear_comp.src_compressed->addr;
     void *rbuf_compressed = task->allgather_linear_comp.dst_compressed->addr;
+    clock_t start, end;
+    double compress_time;
 
     opts.data_type = ucc_to_nvcompans_dtype[dt];
     opts.type = nvcomp_rANS;
@@ -181,7 +195,7 @@ ucc_status_t ucc_tl_ucp_allgather_linear_comp_start(ucc_coll_task_t *coll_task)
     metadata->device_compressed_chunk_ptrs[0] = sbuf_compressed;
     metadata->device_compressed_chunk_bytes[0] = 0;
 
-
+    start = clock();
     nvcompStatus_t compstatus = nvcompBatchedANSCompressAsync(
         (const void * const*)metadata->device_uncompressed_chunk_ptrs,
         metadata->device_uncompressed_chunk_bytes,
@@ -194,6 +208,8 @@ ucc_status_t ucc_tl_ucp_allgather_linear_comp_start(ucc_coll_task_t *coll_task)
         opts,
         team->stream);
     cudaStreamSynchronize(team->stream);
+    end = clock();
+    compress_time = (double)(end - start) / CLOCKS_PER_SEC;
 
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess) {
@@ -206,8 +222,8 @@ ucc_status_t ucc_tl_ucp_allgather_linear_comp_start(ucc_coll_task_t *coll_task)
         return UCC_ERR_INVALID_PARAM;
     }
 
-    ucc_print("rank %d: uncompressed %zu bytes, compressed %zu bytes\n", trank,
-              metadata->device_uncompressed_chunk_bytes[0], metadata->device_compressed_chunk_bytes[0]);
+    ucc_print("rank %d: compression took %f seconds, compression rate=%f (%zu B -> %zu B)\n", trank,
+              compress_time, (double)metadata->device_uncompressed_chunk_bytes[0] / metadata->device_compressed_chunk_bytes[0], metadata->device_uncompressed_chunk_bytes[0], metadata->device_compressed_chunk_bytes[0]);
 
     ucc_tl_ucp_task_reset(task, UCC_INPROGRESS);
     task->allgather_linear.copy_task = NULL;
