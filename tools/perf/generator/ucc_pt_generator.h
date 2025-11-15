@@ -111,6 +111,7 @@ private:
     size_t nrep;
     size_t current_pattern;
     size_t current_rep;
+    size_t dt_size;
     std::vector<std::vector<uint32_t>> pattern_counts;  // Store counts for each pattern. vector of vectors of counts (#vectors = #matrices)
     std::vector<uint32_t> src_counts;
     std::vector<uint32_t> src_displs;
@@ -121,7 +122,7 @@ private:
     void* counts_state_ptr = nullptr;
     void setup_counts_displs();
 public:
-    ucc_pt_generator_matrix(int kind, uint32_t gsize, uint32_t rank, ucc_pt_op_type_t type, size_t nrep, int token_size_KB_mean, int num_tokens, int tgt_group_size_mean);
+    ucc_pt_generator_matrix(ucc_datatype_t dt, int kind, uint32_t gsize, uint32_t rank, ucc_pt_op_type_t type, size_t nrep, int token_size_KB_mean, int num_tokens, int tgt_group_size_mean);
     bool has_next() override;
     void next() override;
     void reset() override;

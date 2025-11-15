@@ -55,7 +55,7 @@ void random_choice(const std::vector<T>& data,size_t size, std::vector<T>& resul
 }
 
 
-std::vector<std::vector<double>> create_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int tgt_group_size_mean, int num_tokens, bool add_bias=false, double bias_factor=2, int num_hl_ranks=2) {
+std::vector<std::vector<double>> create_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int tgt_group_size_mean, int num_tokens, size_t dt_size, bool add_bias=false, double bias_factor=2, int num_hl_ranks=2) {
     // Create a random a2aV traffic matrix where each rank sends token_size_KB_mean messages
     // to a random group of tgt_group_size_mean other ranks.
     // If add_bias is true, the bias_factor is used to increase the probability of sending messages to the higher level ranks.
@@ -93,7 +93,7 @@ std::vector<std::vector<double>> create_a2aV_traffic_matrix(int num_ranks, int t
                         random_choice(possible_targets, tgt_group_size_mean, target_ranks);
                     }
                     for (int i = 0; i < target_ranks.size(); i++) {
-                        traffic_matrix[src_rank][target_ranks[i]] += token_size_KB_mean;
+                        traffic_matrix[src_rank][target_ranks[i]] += token_size_KB_mean * (1000/dt_size);
                     }
                 }
             }
@@ -101,38 +101,38 @@ std::vector<std::vector<double>> create_a2aV_traffic_matrix(int num_ranks, int t
     return traffic_matrix;
 }
 
-std::vector<std::vector<double>> create_random_tgt_group_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int tgt_group_size_mean, int tgt_group_size_std, int num_tokens) {
+std::vector<std::vector<double>> create_random_tgt_group_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int tgt_group_size_mean, int tgt_group_size_std, int num_tokens, size_t dt_size) {
     // Create a random a2aV traffic matrix where each rank sends token_size_KB_mean messages
     // to a random group of ranks with random size.
     // The traffic matrix is returned as a matrix of size num_ranks x num_ranks.
 
     std::vector<std::vector<double>> traffic_matrix(num_ranks, std::vector<double>(num_ranks, 0));
-        for (int src_rank = 0; src_rank < num_ranks; src_rank++) {
-            std::vector<int> possible_targets(num_ranks-1);
-            possible_targets.clear();
-            for (int i = 0; i < num_ranks; i++) {
-                if (i != src_rank) {
-                    possible_targets.push_back(i);
-                }
-            }
-            for (int token = 0; token < num_tokens; token++) {
-                std::normal_distribution<double> distribution(tgt_group_size_mean, tgt_group_size_std);
-                double normal_sample = distribution(generator);
-                double tgt_group_size;
-                tgt_group_size = std::max(1.0, normal_sample);
-                tgt_group_size = std::min(tgt_group_size, num_ranks - 1.0);  // Cap at available targets
-                
-                std::vector<int> target_ranks(tgt_group_size);
-                random_choice(possible_targets, tgt_group_size, target_ranks);
-                for (int i = 0; i < target_ranks.size(); i++) {
-                    traffic_matrix[src_rank][target_ranks[i]] += token_size_KB_mean;
-                }
+    for (int src_rank = 0; src_rank < num_ranks; src_rank++) {
+        std::vector<int> possible_targets(num_ranks-1);
+        possible_targets.clear();
+        for (int i = 0; i < num_ranks; i++) {
+            if (i != src_rank) {
+                possible_targets.push_back(i);
             }
         }
+        for (int token = 0; token < num_tokens; token++) {
+            std::normal_distribution<double> distribution(tgt_group_size_mean, tgt_group_size_std);
+            double normal_sample = distribution(generator);
+            int tgt_group_size;
+            tgt_group_size = std::max(1, static_cast<int>(normal_sample));
+            tgt_group_size = std::min(tgt_group_size, num_ranks - 1);  // Cap at available targets
+            
+            std::vector<int> target_ranks(tgt_group_size);
+            random_choice(possible_targets, tgt_group_size, target_ranks);
+            for (int i = 0; i < target_ranks.size(); i++) {
+                traffic_matrix[src_rank][target_ranks[i]] += token_size_KB_mean * (1000/dt_size);  
+            }
+        }
+    }
     return traffic_matrix;
 }
 
-std::vector<std::vector<double>> create_random_tgt_group_random_msg_size_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int token_size_KB_std, int tgt_group_size_mean, int tgt_group_size_std, int num_tokens) {
+std::vector<std::vector<double>> create_random_tgt_group_random_msg_size_a2aV_traffic_matrix(int num_ranks, int token_size_KB_mean, int token_size_KB_std, int tgt_group_size_mean, int tgt_group_size_std, int num_tokens, size_t dt_size) {
     // Create a random a2aV traffic matrix where each rank sends a random message size
     // to a random group of tgt_group_size_mean other ranks.
     // The traffic matrix is returned as a matrix of size num_ranks x num_ranks.
@@ -152,22 +152,22 @@ std::vector<std::vector<double>> create_random_tgt_group_random_msg_size_a2aV_tr
         }
         for (int token = 0; token < num_tokens; token++) {
             double normal_sample_tgt_group_size = distribution_tgt_group_size(generator);
-            double tgt_group_size;
-            tgt_group_size = std::max(1.0, normal_sample_tgt_group_size);
-            tgt_group_size = std::min(tgt_group_size, num_ranks - 1.0);  // Cap at available targets
+            int tgt_group_size;
+            tgt_group_size = std::max(1, static_cast<int>(normal_sample_tgt_group_size));
+            tgt_group_size = std::min(tgt_group_size, num_ranks - 1);  // Cap at available targets
             
             std::vector<int> target_ranks(tgt_group_size);
             random_choice(possible_targets, tgt_group_size, target_ranks);
             for (int i = 0; i < target_ranks.size(); i++) {
                 double normal_sample_token_size = distribution_token_size(generator);
-                traffic_matrix[src_rank][target_ranks[i]] += std::max(0.0, normal_sample_token_size);
+                traffic_matrix[src_rank][target_ranks[i]] += std::max(0.0, normal_sample_token_size) * (1000/dt_size);
             }
         }
     }
     return traffic_matrix;
 }
 
-void print_result(std::vector<std::vector<double>> traffic_matrix, bool print_full_result) {
+void print_result(std::vector<std::vector<double>> traffic_matrix) {
     // Print the traffic matrix
     // The first dimension is the source rank.
     // The second dimension is the target rank.
@@ -183,6 +183,7 @@ void print_result(std::vector<std::vector<double>> traffic_matrix, bool print_fu
 // use ucc_str_to_memunits - https://github.com/openucx/ucx/blob/78115a7edfe6af0a990873afbc46750b738cdece/src/ucs/sys/string.c#L169
 
 ucc_pt_generator_matrix::ucc_pt_generator_matrix(
+    ucc_datatype_t dt,
     int kind,
     uint32_t gsize,
     uint32_t rank,
@@ -199,6 +200,7 @@ ucc_pt_generator_matrix::ucc_pt_generator_matrix(
     current_pattern = 0;
     current_rep = 0;
     nrep = nrepeats;
+    dt_size = ucc_dt_size(dt);
     
     token_size_KB_mean = token_size_KB_mean;
     tgt_group_size_mean = tgt_group_size_mean;
@@ -209,13 +211,15 @@ ucc_pt_generator_matrix::ucc_pt_generator_matrix(
     token_size_KB_std = token_size_KB_mean; 
 
     if (kind == 0) {
-        traffic_matrix = create_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, num_tokens, add_bias=false, bias_factor, num_hl_ranks);
+        bool add_bias = false;
+        traffic_matrix = create_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, num_tokens, dt_size, add_bias, bias_factor, num_hl_ranks);
     } else if (kind == 1) {
-        traffic_matrix = create_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, num_tokens, add_bias=true, bias_factor, num_hl_ranks);
+        bool add_bias = true;
+        traffic_matrix = create_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, num_tokens, dt_size, add_bias, bias_factor, num_hl_ranks);
     } else if (kind == 2) {
-        traffic_matrix = create_random_tgt_group_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, tgt_group_size_std, num_tokens);
+        traffic_matrix = create_random_tgt_group_a2aV_traffic_matrix(comm_size, token_size_KB_mean, tgt_group_size_mean, tgt_group_size_std, num_tokens, dt_size);
     } else if (kind == 3) {
-        traffic_matrix = create_random_tgt_group_random_msg_size_a2aV_traffic_matrix(comm_size, token_size_KB_mean, token_size_KB_std, tgt_group_size_mean, tgt_group_size_std, num_tokens);
+        traffic_matrix = create_random_tgt_group_random_msg_size_a2aV_traffic_matrix(comm_size, token_size_KB_mean, token_size_KB_std, tgt_group_size_mean, tgt_group_size_std, num_tokens, dt_size);
     }
 
     print_result(traffic_matrix, false);
@@ -263,7 +267,10 @@ ucc_pt_generator_matrix::ucc_pt_generator_matrix(
     for (const auto& row : traffic_matrix) {
         pattern.insert(pattern.end(), row.begin(), row.end());
     }
+    
+    for (int i = 0; i < pattern.size(); i++) {
     pattern_counts.push_back(pattern);
+    }
 
 
     if (pattern_counts.empty()) {
