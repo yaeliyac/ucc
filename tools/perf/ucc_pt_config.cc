@@ -194,20 +194,22 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         std::cerr << "Invalid format for --gen matrix:kind=N" << std::endl;
                         return UCC_ERR_INVALID_PARAM;
                     }
-                    auto kind_str = gen_arg.substr(kind_pos + 5);
-                    if (kind_str.find("0", kind_pos+5) != std::string::npos || kind_str.find("normal", kind_pos+5) != std::string::npos) {
+                    
+                    auto at_pos = gen_arg.find("@", kind_pos+5);
+                    auto kind_str = gen_arg.substr(kind_pos, at_pos);
+                    if (kind_str.find("0") != std::string::npos || kind_str.find("normal") != std::string::npos) {
                         bench.gen.matrix.kind = 0;
-                    } else if (kind_str.find("1", kind_pos+5) != std::string::npos || kind_str.find("biased", kind_pos+5) != std::string::npos) {
+                    } else if (kind_str.find("1") != std::string::npos || kind_str.find("biased") != std::string::npos) {
                         bench.gen.matrix.kind = 1;
-                    } else if (kind_str.find("2", kind_pos+5) != std::string::npos || kind_str.find("random_tgt_group", kind_pos+5) != std::string::npos) {
+                    } else if (kind_str.find("2") != std::string::npos || kind_str.find("random_tgt_group") != std::string::npos) {
                         bench.gen.matrix.kind = 2;
-                    }else if (kind_str.find("3", kind_pos+5) != std::string::npos || kind_str.find("random_tgt_group_random_msg_size", kind_pos+5) != std::string::npos) {
+                    }else if (kind_str.find("3") != std::string::npos || kind_str.find("random_tgt_group_random_msg_size") != std::string::npos) {
                         bench.gen.matrix.kind = 3;
                     } else {
                         std::cerr << "Invalid kind value in --gen matrix:kind=N only accepts 0, 1, 2, 3" << std::endl;
                         return UCC_ERR_INVALID_PARAM;
                     }
-                    auto at_pos = gen_arg.find("@", kind_pos+6);
+                    
                     if (at_pos != std::string::npos) {
                         auto nrep_pos = gen_arg.find("nrep=", at_pos);
                         if (nrep_pos != std::string::npos) {
