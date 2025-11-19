@@ -200,6 +200,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                     bench.gen.matrix.num_tokens = 2048;
                     bench.gen.matrix.tgt_group_size_mean = 8;
 
+                    /* Helper to extract key=value optionally separated by '@' in any order */
                     auto find_param = [&](const std::string &key, std::string &out) -> bool {
                         auto pos = gen_arg.find(key + "=");
                         if (pos == std::string::npos) {
@@ -214,6 +215,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         return true;
                     };
 
+                    /* kind (optional) */
                     std::string kind_str;
                     if (find_param("kind", kind_str)) {
                         std::string ks = kind_str;
@@ -232,6 +234,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         }
                     }
 
+                    /* nrep (optional) */
                     std::string nrep_str;
                     if (find_param("nrep", nrep_str)) {
                         try {
@@ -242,6 +245,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         }
                     }
 
+                    /* token_size (optional) */
                     std::string token_size_str;
                     if (find_param("token_size", token_size_str)) {
                         try {
@@ -253,6 +257,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         bench.gen.matrix.token_size_KB_std = bench.gen.matrix.token_size_KB_mean;
                     }
 
+                    /* num_tokens (optional) */
                     std::string num_tokens_str;
                     if (find_param("num_tokens", num_tokens_str)) {
                         try {
@@ -263,6 +268,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                         }
                     }
 
+                    /* tgt_group_size (optional) */
                     std::string tgt_group_size_str;
                     if (find_param("tgt_group_size", tgt_group_size_str)) {
                         try {
@@ -408,7 +414,6 @@ void ucc_pt_config::print_help()
     std::cout << "  -F: enable full print"<<std::endl;
     std::cout << "  -S: <number>: root shift for rooted collectives"<<std::endl;
     std::cout << "  --gen <exp:min=N[@max=M]|file:name=filename[@nrep=N]|matrix:[kind=K][@nrep=N][@token_size=M][@num_tokens=K][@tgt_group_size=G]>: Pattern generator (exponential or file-based or matrix-based)" << std::endl;
-    std::cout << " --seed <number>: seed for the random distributions"<<std::endl;
     std::cout << "  -h: show this help message"<<std::endl;
     std::cout << std::endl;
 }

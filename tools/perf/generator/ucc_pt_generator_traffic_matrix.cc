@@ -13,11 +13,17 @@
 
 std::default_random_engine generator;
 
-void ucc_pt_set_global_seed(uint64_t seed)
-{
-    generator.seed(static_cast<std::default_random_engine::result_type>(seed));
-}
 
+/**
+ * @brief Randomly selects 'size' elements from a vector (with replacement), 
+ * using weights if provided, or uniform probability otherwise.
+ *
+ * @tparam T The type of elements in the vector.
+ * @param data The vector of elements to choose from.
+ * @param size The number of elements to pick.
+ * @param weights Optional vector of relative weights. 
+ * @return A vector of m randomly selected elements of type T.r
+ */
 template <typename T>
 void random_choice(const std::vector<T>& data,size_t size, std::vector<T>& result_vec, const std::vector<double>& weights = {}) {
     if (data.empty()) {
