@@ -199,7 +199,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                     bench.gen.matrix.token_size_KB_std  = bench.gen.matrix.token_size_KB_mean;
                     bench.gen.matrix.num_tokens = 2048;
                     bench.gen.matrix.tgt_group_size_mean = 8;
-
+                    bench.gen.matrix.shuffle_cols = false;
                     /* Helper to extract key=value optionally separated by '@' in any order */
                     auto find_param = [&](const std::string &key, std::string &out) -> bool {
                         auto pos = gen_arg.find(key + "=");
@@ -278,8 +278,25 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                             return UCC_ERR_INVALID_PARAM;
                         }
                     }
+
+                    /* shuffle_cols (optional) */
+                    std::string shuffle_cols_str;
+                    if (find_param("shuffle", shuffle_cols_str)) {
+                        std::string ss = shuffle_cols_str;
+                        std::transform(ss.begin(), ss.end(), ss.begin(), ::tolower);
+                        if (ss == "true" || ss == "1" || ss.find("yes") != std::string::npos) {
+                            bench.gen.matrix.shuffle_cols = true;
+                        } else if (ss == "false" || ss == "0" || ss.find("no") != std::string::npos) {
+                            bench.gen.matrix.shuffle_cols = false;
+                        } else {
+                            std::cerr << "Invalid shuffle_cols value in --gen matrix. Accepts true, false, 1, 0, yes, no" << std::endl;
+                            return UCC_ERR_INVALID_PARAM;
+                        }
+                    } else {
+                        bench.gen.matrix.shuffle_cols = false;
+                    }
                 } else {
-                    std::cerr << "Invalid value for --gen. Use exp:min=N[@max=M] or file:name=filename[@nrep=N] or matrix:kind=mat_kind[@nrep=N@token_size=M@num_tokens=K]" << std::endl;
+                    std::cerr << "Invalid value for --gen. Use exp:min=N[@max=M] or file:name=filename[@nrep=N] or matrix:kind=mat_kind[@nrep=N@token_size=M@num_tokens=K@tgt_group_size=G@shuffle=true|false]" << std::endl;
                     return UCC_ERR_INVALID_PARAM;
                 }
             } else if (strcmp(long_options[option_index].name, "seed") == 0) {

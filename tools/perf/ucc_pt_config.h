@@ -93,6 +93,7 @@ struct ucc_pt_gen_traffic_matrix_config {
     int num_tokens;
     int num_hl_ranks;
     double bias_factor;
+    bool shuffle_cols;
 };
 struct ucc_pt_gen_config {
     ucc_pt_gen_type_t type;
