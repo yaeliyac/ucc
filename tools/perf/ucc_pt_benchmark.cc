@@ -18,6 +18,9 @@ ucc_pt_benchmark::ucc_pt_benchmark(ucc_pt_benchmark_config cfg,
     config(cfg),
     comm(communicator)
 {
+    /* Seed global RNGs used by generators, if provided */
+    ucc_pt_set_global_seed(cfg.seed);
+
     if (cfg.gen.type == UCC_PT_GEN_TYPE_EXP) {
         generator = new ucc_pt_generator_exponential(cfg.min_count, cfg.max_count, 2,
                                                      communicator->get_size(),
@@ -30,6 +33,11 @@ ucc_pt_benchmark::ucc_pt_benchmark(ucc_pt_benchmark_config cfg,
         if (cfg.op_type != UCC_PT_OP_TYPE_ALLTOALLV) {
             throw std::runtime_error("Only ALLTOALLV is supported for file generator");
         }
+    } else if (cfg.gen.type == UCC_PT_GEN_TYPE_TRAFFIC_MATRIX) {
+        if (cfg.op_type != UCC_PT_OP_TYPE_ALLTOALLV) {
+            throw std::runtime_error("Only ALLTOALLV is supported for traffic matrix generator");
+        }
+        generator = new ucc_pt_generator_traffic_matrix(cfg.gen.matrix.kind, communicator->get_size(), communicator->get_rank(), cfg.dt, cfg.op_type, cfg.gen.nrep, cfg.gen.matrix.token_size_KB_mean, cfg.gen.matrix.num_tokens, cfg.gen.matrix.tgt_group_size_mean);
     } else {
         /* assuming that the generator type is UCC_PT_GEN_TYPE_EXP */
         generator = new ucc_pt_generator_exponential(cfg.min_count, cfg.max_count, 2,
