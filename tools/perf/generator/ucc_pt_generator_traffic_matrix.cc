@@ -254,6 +254,7 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
 
 bool ucc_pt_generator_traffic_matrix::has_next()
 {
+    std::cout << "current_rep: " << current_rep << " nrep: " << nrep << std::endl;
     return current_rep < nrep;
 }
 
