@@ -1,14 +1,14 @@
 #include "ucc_pt_generator.h"
-#include <ucc/api/ucc.h>
-#include <utils/ucc_math.h>
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <ucc/api/ucc.h>
+#include <utils/ucc_math.h>
 #include <vector>
-#include <cstring>
 
 template <typename T>
 void random_choice(const std::vector<T> &data, size_t size, std::vector<T> &result_vec, std::mt19937_64 &rng,
@@ -354,8 +354,8 @@ size_t ucc_pt_generator_traffic_matrix::get_dst_count_max() {
 
 size_t ucc_pt_generator_traffic_matrix::get_count_max() {
     const auto &matrix    = pattern_counts[current_pattern];
-    size_t max_count = 0;
-    size_t cur_row_col;
+    size_t      max_count = 0;
+    size_t      cur_row_col;
 
     for (int i = 0; i < comm_size; i++) {
         cur_row_col = 0;
