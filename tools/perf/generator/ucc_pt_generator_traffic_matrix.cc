@@ -225,7 +225,7 @@ void print_result(
 ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
     int kind, uint32_t gsize, uint32_t rank, ucc_datatype_t dtype,
     ucc_pt_op_type_t type, size_t nrepeats, int token_size_KB_mean_,
-    int num_tokens_, int tgt_group_size_mean_, uint64_t seed)
+    int num_tokens_, int tgt_group_size_mean_, uint64_t seed, int shuffle_)
 {
 
     comm_size           = gsize;
@@ -244,7 +244,7 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
     tgt_group_size_std  = 1;
     token_size_KB_std   = 1;
     dt_size             = ucc_dt_size(dtype);
-
+    shuffle             = shuffle_;
     if (kind == 0) {
         traffic_matrix = create_a2aV_traffic_matrix(
             comm_size,

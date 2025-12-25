@@ -101,6 +101,7 @@ class ucc_pt_generator_traffic_matrix : public ucc_pt_generator_base {
     uint32_t        comm_size;
     uint32_t        rank_id;
     int             kind;
+    int             shuffle;
     int             token_size_KB_mean;
     int             tgt_group_size_mean;
     int             num_tokens;
