@@ -129,7 +129,7 @@ class ucc_pt_generator_traffic_matrix : public ucc_pt_generator_base {
     ucc_pt_generator_traffic_matrix(
         int kind, uint32_t gsize, uint32_t rank, ucc_datatype_t dtype,
         ucc_pt_op_type_t type, size_t nrep, int token_size_KB_mean,
-        int num_tokens, int tgt_group_size_mean, uint64_t seed);
+        int num_tokens, int tgt_group_size_mean, uint64_t seed, int shuffle);
     bool         has_next() override;
     void         next() override;
     void         reset() override;

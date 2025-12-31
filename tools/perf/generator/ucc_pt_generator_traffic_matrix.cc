@@ -326,23 +326,29 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
 
 bool ucc_pt_generator_traffic_matrix::has_next()
 {
+    std::cout << "================================ has_next" << std::endl;
+    std::cout << "current_rep: " << current_rep << std::endl;
+    std::cout << "nrep: " << nrep << std::endl;
     return current_rep < nrep;
 }
 
 void ucc_pt_generator_traffic_matrix::next()
 {
+    std::cout << "================================ next" << std::endl;
     current_pattern++;
     if (current_pattern >= pattern_counts.size()) {
         current_pattern = 0;
         current_rep++;
     }
     if (has_next()) {
+        std::cout << "================================ has_next is true" << std::endl;
         setup_counts_displs();
     }
 }
 
 void ucc_pt_generator_traffic_matrix::reset()
 {
+    std::cout << "================================ reset" << std::endl;
     current_pattern = 0;
     current_rep     = 0;
     setup_counts_displs();
@@ -350,6 +356,7 @@ void ucc_pt_generator_traffic_matrix::reset()
 
 size_t ucc_pt_generator_traffic_matrix::get_src_count()
 {
+    std::cout << "================================ get_src_count" << std::endl;
     size_t total = 0;
     for (int i = 0; i < comm_size; i++) {
         total += src_counts[i];
@@ -359,6 +366,7 @@ size_t ucc_pt_generator_traffic_matrix::get_src_count()
 
 size_t ucc_pt_generator_traffic_matrix::get_dst_count()
 {
+    std::cout << "================================ get_dst_count" << std::endl;
     size_t total = 0;
     for (int i = 0; i < comm_size; i++) {
         total += dst_counts[i];
@@ -368,26 +376,31 @@ size_t ucc_pt_generator_traffic_matrix::get_dst_count()
 
 ucc_count_t *ucc_pt_generator_traffic_matrix::get_src_counts()
 {
+    std::cout << "================================ get_src_counts" << std::endl;
     return (ucc_count_t *)src_counts.data();
 }
 
 ucc_aint_t *ucc_pt_generator_traffic_matrix::get_src_displs()
 {
+    std::cout << "================================ get_src_displs" << std::endl;
     return (ucc_aint_t *)src_displs.data();
 }
 
 ucc_count_t *ucc_pt_generator_traffic_matrix::get_dst_counts()
 {
+    std::cout << "================================ get_dst_counts" << std::endl;
     return (ucc_count_t *)dst_counts.data();
 }
 
 ucc_aint_t *ucc_pt_generator_traffic_matrix::get_dst_displs()
 {
+    std::cout << "================================ get_dst_displs" << std::endl;
     return (ucc_aint_t *)dst_displs.data();
 }
 
 void ucc_pt_generator_traffic_matrix::setup_counts_displs()
 {
+    std::cout << "================================ setup_counts_displs" << std::endl;
     const auto &counts = pattern_counts[current_pattern];
 
     if (counts.size() < comm_size * comm_size) {
@@ -420,6 +433,7 @@ void ucc_pt_generator_traffic_matrix::setup_counts_displs()
 
 size_t ucc_pt_generator_traffic_matrix::get_src_count_max()
 {
+    std::cout << "================================ get_src_count_max" << std::endl;
     size_t max_src_count = 0;
 
     for (size_t i = 0; i < pattern_counts.size(); i++) {
@@ -437,6 +451,7 @@ size_t ucc_pt_generator_traffic_matrix::get_src_count_max()
 
 size_t ucc_pt_generator_traffic_matrix::get_dst_count_max()
 {
+    std::cout << "================================ get_dst_count_max" << std::endl;
     size_t max_dst_count = 0;
 
     for (size_t i = 0; i < pattern_counts.size(); i++) {
@@ -454,6 +469,7 @@ size_t ucc_pt_generator_traffic_matrix::get_dst_count_max()
 
 size_t ucc_pt_generator_traffic_matrix::get_count_max()
 {
+    std::cout << "================================ get_count_max" << std::endl;
     const auto &matrix    = pattern_counts[current_pattern];
     size_t      max_count = 0;
     size_t      cur_row_col;
