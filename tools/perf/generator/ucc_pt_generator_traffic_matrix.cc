@@ -340,7 +340,6 @@ void ucc_pt_generator_traffic_matrix::next()
     }
     if (has_next()) {
         if (shuffle == 1) {
-            std::cout << "================================ shuffle is true" << std::endl;
             current_counts = base_counts;
             if (comm_size > 1) {
                 std::uniform_int_distribution<int> dist(0, comm_size - 1);
@@ -355,25 +354,9 @@ void ucc_pt_generator_traffic_matrix::next()
                         const size_t idx2 = r * comm_size + static_cast<size_t>(c2);
                         std::swap(current_counts[idx1], current_counts[idx2]);
                     }
-                    // Debug prints to verify shuffle happened
-                    std::cout << "================================ shuffle columns swap"
-                              << " rep=" << current_rep
-                              << " c1=" << c1
-                              << " c2=" << c2 << std::endl;
-                    uint32_t before_c1 = base_counts[rank_id * comm_size + static_cast<size_t>(c1)];
-                    uint32_t before_c2 = base_counts[rank_id * comm_size + static_cast<size_t>(c2)];
-                    uint32_t after_c1  = current_counts[rank_id * comm_size + static_cast<size_t>(c1)];
-                    uint32_t after_c2  = current_counts[rank_id * comm_size + static_cast<size_t>(c2)];
-                    std::cout << "rank=" << rank_id
-                              << " before: col[" << c1 << "]=" << before_c1
-                              << " col[" << c2 << "]=" << before_c2
-                              << " | after: col[" << c1 << "]=" << after_c1
-                              << " col[" << c2 << "]=" << after_c2
-                              << std::endl;
                 }
             }
         } else {
-            std::cout << "================================ shuffle is false" << std::endl;
             current_counts = pattern_counts[current_pattern];
         }
         setup_counts_displs();
