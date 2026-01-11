@@ -9,6 +9,7 @@
 #include <ucc/api/ucc.h>
 #include <utils/ucc_math.h>
 #include <vector>
+#include <unordered_map>
 
 template <typename T>
 void random_choice(
@@ -225,7 +226,7 @@ void print_result(
 ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
     int kind, uint32_t gsize, uint32_t rank, ucc_datatype_t dtype,
     ucc_pt_op_type_t type, size_t nrepeats, int token_size_KB_mean_,
-    int num_tokens_, int tgt_group_size_mean_, uint64_t seed)
+    int num_tokens_, int tgt_group_size_mean_, uint64_t seed, int shuffle_)
 {
 
     comm_size           = gsize;
@@ -244,7 +245,7 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
     tgt_group_size_std  = 1;
     token_size_KB_std   = 1;
     dt_size             = ucc_dt_size(dtype);
-
+    shuffle             = shuffle_;
     if (kind == 0) {
         traffic_matrix = create_a2aV_traffic_matrix(
             comm_size,
@@ -289,7 +290,6 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
                 rng_);
     }
 
-    // print_result(traffic_matrix, false);
     pattern_counts.reserve(traffic_matrix.size());
 
     std::vector<uint32_t> pattern;
@@ -311,6 +311,8 @@ ucc_pt_generator_traffic_matrix::ucc_pt_generator_traffic_matrix(
         pattern.insert(pattern.end(), row.begin(), row.end());
     }
     pattern_counts.push_back(pattern);
+    base_counts    = pattern;
+    current_counts = base_counts;
 
     if (pattern_counts.empty()) {
         throw std::runtime_error(
@@ -337,6 +339,26 @@ void ucc_pt_generator_traffic_matrix::next()
         current_rep++;
     }
     if (has_next()) {
+        if (shuffle == 1) {
+            current_counts = base_counts;
+            if (comm_size > 1) {
+                std::uniform_int_distribution<int> dist(0, comm_size - 1);
+                int c1 = dist(rng_);
+                int c2 = dist(rng_);
+                while (c2 == c1 && comm_size > 1) {
+                    c2 = dist(rng_);
+                }
+                if (c1 != c2) {
+                    for (uint32_t r = 0; r < comm_size; r++) {
+                        const size_t idx1 = r * comm_size + static_cast<size_t>(c1);
+                        const size_t idx2 = r * comm_size + static_cast<size_t>(c2);
+                        std::swap(current_counts[idx1], current_counts[idx2]);
+                    }
+                }
+            }
+        } else {
+            current_counts = pattern_counts[current_pattern];
+        }
         setup_counts_displs();
     }
 }
@@ -345,6 +367,7 @@ void ucc_pt_generator_traffic_matrix::reset()
 {
     current_pattern = 0;
     current_rep     = 0;
+    current_counts = base_counts;
     setup_counts_displs();
 }
 
@@ -439,14 +462,26 @@ size_t ucc_pt_generator_traffic_matrix::get_dst_count_max()
 {
     size_t max_dst_count = 0;
 
-    for (size_t i = 0; i < pattern_counts.size(); i++) {
-        const auto &counts    = pattern_counts[i];
-        size_t      total_dst = 0;
-        for (int j = 0; j < comm_size; j++) {
-            total_dst += counts[j * comm_size + rank_id];
+    if (shuffle == 1) {
+        for (uint32_t c = 0; c < comm_size; c++) {
+            size_t total_dst = 0;
+            for (uint32_t r = 0; r < comm_size; r++) {
+                total_dst += base_counts[r * comm_size + c];
+            }
+            if (total_dst > max_dst_count) {
+                max_dst_count = total_dst;
+            }
         }
-        if (total_dst > max_dst_count) {
-            max_dst_count = total_dst;
+    } else {
+        for (size_t i = 0; i < pattern_counts.size(); i++) {
+            const auto &counts    = pattern_counts[i];
+            size_t      total_dst = 0;
+            for (int j = 0; j < comm_size; j++) {
+                total_dst += counts[j * comm_size + rank_id];
+            }
+            if (total_dst > max_dst_count) {
+                max_dst_count = total_dst;
+            }
         }
     }
     return max_dst_count;
