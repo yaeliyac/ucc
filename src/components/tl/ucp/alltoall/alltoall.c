@@ -10,8 +10,7 @@
 #include "alltoall.h"
 #include "../../../utils/ucc_string.h"
 
-#define ALLTOALL_MAX_PATTERN_SIZE                                              \
-    (sizeof(UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_1PPN) * 2)
+#define ALLTOALL_MAX_PATTERN_SIZE (sizeof(UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN) + 32)
 #define ALLTOALL_DEFAULT_ALG_SWITCH 129
 
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_start(ucc_coll_task_t *task);
