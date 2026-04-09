@@ -20,8 +20,14 @@ enum {
 extern ucc_base_coll_alg_info_t
     ucc_tl_ucp_alltoall_algs[UCC_TL_UCP_ALLTOALL_ALG_LAST + 1];
 
-#define UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN \
-"alltoall:host:0-%d:@bruck"
+#define UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN                    \
+    "alltoall:host:0-%d:@bruck"
+
+#define UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_1PPN                        \
+    "alltoall:0-inf:%s:@0#alltoall:%s:0-%d:@1"
+
+#define UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_1PPN_CUDA                   \
+    "alltoall:0-inf:%s:@0#alltoall:0-%d:@1"
 
 char* ucc_tl_ucp_alltoall_score_str_get(ucc_tl_ucp_team_t *team);
 
