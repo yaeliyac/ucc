@@ -8,7 +8,7 @@
 #include "tl_ucp.h"
 #include "alltoall.h"
 
-#define ALLTOALL_MAX_PATTERN_SIZE (sizeof(UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN) + 32)
+#define ALLTOALL_MAX_PATTERN_SIZE 4*(sizeof(UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN) + 32)
 #define ALLTOALL_DEFAULT_ALG_SWITCH 129
 
 ucc_status_t ucc_tl_ucp_alltoall_pairwise_start(ucc_coll_task_t *task);

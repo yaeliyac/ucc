@@ -21,7 +21,7 @@ extern ucc_base_coll_alg_info_t
     ucc_tl_ucp_alltoall_algs[UCC_TL_UCP_ALLTOALL_ALG_LAST + 1];
 
 #define UCC_TL_UCP_ALLTOALL_DEFAULT_ALG_SELECT_STR_PATTERN \
-"alltoall:host:0-%d:@bruck"
+"alltoall:0-%d:@pairwise"
 
 char* ucc_tl_ucp_alltoall_score_str_get(ucc_tl_ucp_team_t *team);
 
