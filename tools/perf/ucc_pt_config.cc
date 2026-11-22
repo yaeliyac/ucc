@@ -34,6 +34,8 @@ ucc_pt_config::ucc_pt_config() {
     bench.root_shift     = 0;
     bench.mult_factor    = 2;
     bench.seed           = 0;
+    bench.iteration_mode = UCC_PT_ITER_MODE_ISOLATED;
+    bench.gen.type       = UCC_PT_GEN_TYPE_EXP;
     comm.mt              = bench.mt;
 }
 
@@ -104,6 +106,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
     static struct option long_options[] = {
         {"gen", required_argument, 0, 0},
         {"seed", required_argument, 0, 0},
+        {"iteration-mode", required_argument, 0, 0},
         {0, 0, 0, 0}};
 
     // Reset getopt state
@@ -339,6 +342,18 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                     std::cerr << "Invalid seed value in --seed" << std::endl;
                     return UCC_ERR_INVALID_PARAM;
                 }
+            } else if (strcmp(long_options[option_index].name,
+                              "iteration-mode") == 0) {
+                if (strcmp(optarg, "isolated") == 0) {
+                    bench.iteration_mode = UCC_PT_ITER_MODE_ISOLATED;
+                } else if (strcmp(optarg, "streaming") == 0) {
+                    bench.iteration_mode = UCC_PT_ITER_MODE_STREAMING;
+                } else {
+                    std::cerr << "Invalid --iteration-mode value: " << optarg
+                              << ". Expected isolated or streaming."
+                              << std::endl;
+                    return UCC_ERR_INVALID_PARAM;
+                }
             } else {
                 std::cerr << "Unknown long option" << std::endl;
                 return UCC_ERR_INVALID_PARAM;
@@ -422,6 +437,7 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
             case 'M':
                 if (ucc_pt_map_type_map.count(optarg) == 0) {
                     std::cerr << "invalid map type: " << optarg
+                              << " (expected none, local or global)"
                               << std::endl;
                     return UCC_ERR_INVALID_PARAM;
                 }
@@ -438,6 +454,13 @@ ucc_status_t ucc_pt_config::process_args(int argc, char *argv[])
                 print_help();
                 std::exit(0);
         }
+    }
+    if (bench.map_type != UCC_PT_MAP_TYPE_NONE &&
+        bench.op_type != UCC_PT_OP_TYPE_ALLGATHER &&
+        bench.op_type != UCC_PT_OP_TYPE_ALLTOALL) {
+        std::cerr << "warning: -M is only used by allgather and alltoall, "
+                     "ignored for the selected collective"
+                  << std::endl;
     }
     return UCC_OK;
 }
@@ -458,7 +481,13 @@ void ucc_pt_config::print_help()
     std::cout << "  -w <number>: number of warmup iterations"<<std::endl;
     std::cout << "  -f <number>: multiplication factor between sizes. Default : 2."<<std::endl;
     std::cout << "  -N <number>: number of buffers"<<std::endl;
-    std::cout << "  -M: use local memory registration for collectives"<<std::endl;
+    std::cout << "  -M <none|local|global>: memory mapping mode for the "
+                 "collective buffers (default: none). local: map the buffers "
+                 "and pass local memory handles; global: map the buffers and "
+                 "exchange the handles across ranks (alltoall only). Used by "
+                 "allgather (local only) and alltoall; ignored by other "
+                 "collectives"
+              << std::endl;
     std::cout << "  -T: triggered collective"<<std::endl;
     std::cout << "  -F: enable full print"<<std::endl;
     std::cout << "  -S: <number>: root shift for rooted collectives"<<std::endl;
@@ -467,6 +496,12 @@ void ucc_pt_config::print_help()
                  "[@tgt_group_size=G][@shuffle=0|1]>: Pattern generator (exponential or file-based or matrix-based)"
               << std::endl;
     std::cout << " --seed <number>: seed for the random distributions" << std::endl;
+    std::cout << "  --iteration-mode <isolated|streaming>: synchronize ranks "
+                 "between iterations (isolated, default) or run back-to-back "
+                 "without an iteration barrier (streaming)" << std::endl;
+    std::cout << "    Note: streaming mode may hang with the TL/UCP one-sided "
+                 "Alltoallv algorithm; use isolated mode for that configuration"
+              << std::endl;
     std::cout << "  -h: show this help message"<<std::endl;
     std::cout << std::endl;
 }

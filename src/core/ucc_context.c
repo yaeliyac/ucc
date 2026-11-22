@@ -5,12 +5,15 @@
  */
 
 #include "config.h"
+#include <stddef.h>
 #include "ucc_context.h"
+#include "components/topo/ucc_topo.h"
 #include "utils/ucc_proc_info.h"
 #include "components/cl/ucc_cl.h"
 #include "components/tl/ucc_tl.h"
 #include "components/topo/ucc_sysinfo.h"
 #include "utils/ucc_malloc.h"
+#include "utils/ucc_math.h"
 #include "utils/ucc_log.h"
 #include "utils/ucc_list.h"
 #include "utils/ucc_string.h"
@@ -60,8 +63,13 @@ static ucc_config_field_t ucc_context_config_table[] = {
      ucc_offsetof(ucc_context_config_t, net_devices), UCC_CONFIG_TYPE_STRING_ARRAY},
 
     {"NODE_LOCAL_ID", "auto",
-     "An optimization hint for the local identificator on a single node.",
-     ucc_offsetof(ucc_context_config_t, node_local_id), UCC_CONFIG_TYPE_ULUNITS},
+     "An optimization hint for the local identifier on a single node.\n"
+     " 'auto' : do not set the hint\n"
+     " 'topo' : discover node-local rank via ctx_id/host allgather and topo\n"
+     "          when multi-rank OOB is present; single-rank OOB uses 0.\n"
+     " <n>    : use the given id.",
+     ucc_offsetof(ucc_context_config_t, node_local_id),
+     UCC_CONFIG_TYPE_ULUNITS_AUTO_TOPO},
 
     {NULL}};
 UCC_CONFIG_REGISTER_TABLE(ucc_context_config_table, "UCC context", NULL,
@@ -599,6 +607,160 @@ poll:
     return UCC_OK;
 }
 
+
+ucc_status_t ucc_core_addr_exchange_after_ctx_id(
+    ucc_context_t *context, ucc_oob_coll_t *oob, ucc_addr_storage_t *addr_storage)
+{
+    const size_t ctx_addr_prefix_len =
+        offsetof(ucc_context_addr_header_t, n_components);
+    ucc_context_attr_t attr;
+    ucc_status_t       status;
+
+poll:
+    if (addr_storage->oob_req) {
+        status = oob->req_test(addr_storage->oob_req);
+        if (status < 0) {
+            oob->req_free(addr_storage->oob_req);
+            ucc_error("oob req test failed during team addr exchange");
+            return status;
+        } else if (UCC_INPROGRESS == status) {
+            return status;
+        }
+        oob->req_free(addr_storage->oob_req);
+        addr_storage->oob_req = NULL;
+    }
+
+    if ((addr_storage->flags & UCC_ADDR_STORAGE_FLAG_CTX_ID_PREFIX) &&
+        (addr_storage->addr_len == ctx_addr_prefix_len) &&
+        (addr_storage->storage != NULL)) {
+        if (addr_storage->size != (ucc_rank_t)oob->n_oob_eps) {
+            ucc_error("addr_storage size %d does not match OOB eps %u",
+                      addr_storage->size, oob->n_oob_eps);
+            return UCC_ERR_INVALID_PARAM;
+        }
+        attr.mask = UCC_CONTEXT_ATTR_FIELD_CTX_ADDR_LEN |
+                    UCC_CONTEXT_ATTR_FIELD_CTX_ADDR;
+        status    = ucc_context_get_attr(context, &attr);
+        if (UCC_OK != status) {
+            ucc_error("failed to query ctx address");
+            return status;
+        }
+        ucc_free(addr_storage->storage);
+        addr_storage->storage = ucc_malloc(
+            addr_storage->size * sizeof(size_t), "max_addrlen_tmp");
+        if (!addr_storage->storage) {
+            ucc_error(
+                "failed to allocate %zd bytes for max_addrlen tmp storage",
+                addr_storage->size * sizeof(size_t));
+            return UCC_ERR_NO_MEMORY;
+        }
+        addr_storage->addr_len = 0;
+        addr_storage->flags &= ~UCC_ADDR_STORAGE_FLAG_CTX_ID_PREFIX;
+
+        status = oob->allgather(
+            &context->attr.ctx_addr_len, addr_storage->storage, sizeof(size_t),
+            oob->coll_info, &addr_storage->oob_req);
+        if (UCC_OK != status) {
+            ucc_error("failed to start oob allgather");
+            return status;
+        }
+        goto poll;
+    }
+
+    return ucc_core_addr_exchange(context, oob, addr_storage);
+}
+
+ucc_status_t ucc_core_ctx_id_exchange(ucc_context_t *context, ucc_oob_coll_t *oob,
+                                      ucc_addr_storage_t *addr_storage)
+{
+    /* Caller must pass addr_storage cleared for a new exchange: at entry,
+       addr_len == 0 iff storage == NULL. */
+    const size_t ctx_addr_prefix_len = sizeof(ucc_context_id_t) +
+                                     sizeof(ucc_host_info_t);
+    ucc_status_t               status;
+    ucc_rank_t                 i;
+    ucc_context_addr_header_t *h;
+    void                      *scratch;
+    ucc_rank_t                 r;
+
+poll:
+    if (addr_storage->oob_req) {
+        status = oob->req_test(addr_storage->oob_req);
+        if (status < 0) {
+            oob->req_free(addr_storage->oob_req);
+            addr_storage->oob_req = NULL;
+            ucc_free(addr_storage->storage);
+            addr_storage->storage = NULL;
+            addr_storage->addr_len = 0;
+            ucc_error("oob req test failed during ctx id prefix exchange");
+            return status;
+        } else if (UCC_INPROGRESS == status) {
+            return status;
+        }
+        oob->req_free(addr_storage->oob_req);
+        addr_storage->oob_req = NULL;
+    }
+    if (0 == addr_storage->addr_len) {
+        /* addr_len == 0 iff storage == NULL at entry / before prefix allgather. */
+        ucc_assert(NULL == addr_storage->storage);
+        addr_storage->size = oob->n_oob_eps;
+
+        addr_storage->storage = ucc_malloc(
+            (addr_storage->size + 1) * ctx_addr_prefix_len, "ctx_ids_storage");
+        if (!addr_storage->storage) {
+            ucc_error(
+                "failed to allocate %zd bytes for ctx_ids storage",
+                (addr_storage->size + 1) * ctx_addr_prefix_len);
+            return UCC_ERR_NO_MEMORY;
+        }
+        addr_storage->addr_len = ctx_addr_prefix_len;
+
+        scratch = PTR_OFFSET(addr_storage->storage,
+                             ctx_addr_prefix_len * addr_storage->size);
+        memset(scratch, 0, ctx_addr_prefix_len);
+        h                         = (ucc_context_addr_header_t *)scratch;
+        h->ctx_id                 = context->id;
+        h->host_info              = ucc_local_host;
+
+        status = oob->allgather(scratch, addr_storage->storage,
+                                ctx_addr_prefix_len, oob->coll_info,
+                                &addr_storage->oob_req);
+        if (UCC_OK != status) {
+            ucc_free(addr_storage->storage);
+            addr_storage->storage = NULL;
+            addr_storage->addr_len = 0;
+            ucc_error("failed to start oob allgather for ctx_ids");
+            return status;
+        }
+        goto poll;
+    }
+    /* addr_len is the per-rank prefix stride; set with storage when the prefix
+       allgather is started (see allocation block above). */
+    {
+        r = UCC_RANK_MAX;
+
+        for (i = 0; i < addr_storage->size; i++) {
+            h = (ucc_context_addr_header_t *)PTR_OFFSET(
+                addr_storage->storage, addr_storage->addr_len * i);
+            if (UCC_CTX_ID_EQUAL(context->id, h->ctx_id)) {
+                if (r != UCC_RANK_MAX) {
+                    ucc_error("ctx_id collision: %d %d", r, i);
+                    ucc_free(addr_storage->storage);
+                    addr_storage->storage = NULL;
+                    addr_storage->addr_len = 0;
+                    return UCC_ERR_NO_MESSAGE;
+                }
+                r = i;
+            }
+        }
+
+        addr_storage->flags = UCC_ADDR_STORAGE_FLAG_CTX_ID_PREFIX;
+        addr_storage->rank  = r;
+
+    }
+    return UCC_OK;
+}
+
 static void remove_tl_ctx_from_array(ucc_tl_context_t **array, unsigned *size,
                                      ucc_tl_context_t *tl_ctx)
 {
@@ -620,13 +782,101 @@ static void remove_tl_ctx_from_array(ucc_tl_context_t **array, unsigned *size,
     }
 }
 
+static ucc_status_t ucc_context_create_service_team(
+    const ucc_context_params_t *params, ucc_context_t *ctx)
+{
+    ucc_status_t           status;
+    ucc_status_t           destroy_status;
+    ucc_base_team_params_t t_params;
+    ucc_base_team_t       *b_team;
+
+    if (!(params->mask & UCC_CONTEXT_PARAM_FIELD_OOB)) {
+        ucc_debug("service team cannot be created without context oob");
+        return UCC_ERR_NOT_SUPPORTED;
+    }
+
+    if (params->oob.n_oob_eps <= 1) {
+        ucc_debug("service team cannot be created for communicator of size 1");
+        return UCC_ERR_NOT_SUPPORTED;
+    }
+
+    status = ucc_tl_context_get(ctx, "ucp", &ctx->service_ctx);
+    if (status != UCC_OK) {
+        ucc_debug(
+            "service team cannot be created, TL UCP context is not available");
+        return UCC_ERR_NOT_SUPPORTED;
+    }
+
+    memset(&t_params.map, 0, sizeof(ucc_ep_map_t));
+    memset(&t_params.params, 0, sizeof(ucc_team_params_t));
+
+    t_params.params.mask = UCC_TEAM_PARAM_FIELD_EP |
+                           UCC_TEAM_PARAM_FIELD_EP_RANGE |
+                           UCC_TEAM_PARAM_FIELD_OOB;
+    t_params.params.oob.allgather = ctx->params.oob.allgather;
+    t_params.params.oob.req_test  = ctx->params.oob.req_test;
+    t_params.params.oob.req_free  = ctx->params.oob.req_free;
+    t_params.params.oob.coll_info = ctx->params.oob.coll_info;
+    t_params.params.oob.n_oob_eps = ctx->params.oob.n_oob_eps;
+    t_params.params.ep_range      = UCC_COLLECTIVE_EP_RANGE_CONTIG;
+    t_params.params.ep            = ctx->rank;
+    t_params.rank                 = ctx->rank;
+    t_params.size                 = ctx->params.oob.n_oob_eps;
+    /* CORE scope id - never overlaps with CL type */
+    t_params.scope                = UCC_CL_LAST + 1;
+    t_params.scope_id             = 0;
+    t_params.id                   = 0;
+    t_params.team                 = NULL;
+    t_params.map.type             = UCC_EP_MAP_FULL;
+    t_params.map.ep_num           = t_params.size;
+    status                        = UCC_TL_CTX_IFACE(ctx->service_ctx)
+                 ->team.create_post(
+                     &ctx->service_ctx->super, &t_params, &b_team);
+    if (UCC_OK != status) {
+        ucc_debug(
+            "context service team create post failed with status: %s",
+            ucc_status_string(status));
+        goto exit_err;
+    }
+    do {
+        status = UCC_TL_CTX_IFACE(ctx->service_ctx)->team.create_test(b_team);
+    } while (UCC_INPROGRESS == status);
+
+    if (status < 0) {
+        ucc_debug(
+            "failed to create context service team with status: %s",
+            ucc_status_string(status));
+        while (UCC_INPROGRESS ==
+               (destroy_status =
+                    UCC_TL_CTX_IFACE(ctx->service_ctx)->team.destroy(b_team))) {
+        }
+        if (destroy_status < 0) {
+            ucc_debug("failed to destroy context service team after create "
+                      "failure with status: %s",
+                      ucc_status_string(destroy_status));
+        }
+        goto exit_err;
+    }
+    ctx->service_team = ucc_derived_of(b_team, ucc_tl_team_t);
+
+    return UCC_OK;
+
+exit_err:
+    ucc_tl_context_put(ctx->service_ctx);
+    ctx->service_ctx  = NULL;
+    ctx->service_team = NULL;
+    return status;
+}
+
 ucc_status_t ucc_context_create_proc_info(
     ucc_lib_h lib, const ucc_context_params_t *params,
     const ucc_context_config_h config, ucc_context_h *context,
     ucc_proc_info_t *proc_info)
 {
-    uint32_t                  topo_required       = 0;
-    uint64_t                  created_ctx_counter = 0;
+    uint32_t                  topo_required                = 0;
+    uint64_t                  created_ctx_counter          = 0;
+    int                       ctx_prefix_for_addr_exchange = 0;
+    ucc_topo_t               *topo                         = NULL;
     ucc_base_context_params_t b_params;
     ucc_base_context_t       *b_ctx;
     ucc_base_ctx_attr_t       c_attr;
@@ -636,6 +886,8 @@ ucc_status_t ucc_context_create_proc_info(
     ucc_tl_lib_t             *tl_lib;
     ucc_context_t            *ctx;
     ucc_status_t              status;
+    ucc_subset_t              set;
+    ucc_rank_t                node_local_rank;
     uint64_t                  i, j, n_tl_ctx;
     int                       num_cls;
 
@@ -660,7 +912,9 @@ ucc_status_t ucc_context_create_proc_info(
     b_params.context           = ctx;
     b_params.estimated_num_eps = config->estimated_num_eps;
     b_params.estimated_num_ppn = config->estimated_num_ppn;
-    b_params.node_local_id     = config->node_local_id;
+    b_params.node_local_id     = (config->node_local_id == UCC_ULUNITS_TOPO)
+                                     ? UCC_ULUNITS_AUTO
+                                     : config->node_local_id;
     b_params.prefix            = lib->full_prefix;
     b_params.thread_mode       = lib->attr.thread_mode;
     if (params->mask & UCC_CONTEXT_PARAM_FIELD_OOB) {
@@ -669,6 +923,87 @@ ucc_status_t ucc_context_create_proc_info(
         ucc_check_wait_for_debugger(ctx->rank);
 #endif
     }
+
+    ctx->id.pi      = *proc_info;
+    ctx->id.seq_num = ucc_atomic_fadd32(&ucc_context_seq_num, 1);
+
+    if (config->node_local_id == UCC_ULUNITS_TOPO) {
+        if ((params->mask & UCC_CONTEXT_PARAM_FIELD_OOB) &&
+            params->oob.n_oob_eps == 1) {
+            b_params.node_local_id = 0;
+        } else if ((params->mask & UCC_CONTEXT_PARAM_FIELD_OOB) &&
+                   params->oob.n_oob_eps > 1) {
+            status = ucc_sysinfo_get_host_info(&ucc_local_host);
+            if (UCC_OK != status) {
+                ucc_error("failed to refresh host info for ctx topo exchange");
+                goto error_ctx_create;
+            }
+            do {
+                /* UCC context create is blocking fn, so we can wait here for the
+                completion of addr exchange */
+                status = ucc_core_ctx_id_exchange(ctx, &ctx->params.oob,
+                                                &ctx->addr_storage);
+                if (status < 0) {
+                    ucc_error("failed to exchange addresses during context "
+                            "creation with status: %s",
+                            ucc_status_string(status));
+                    goto error_ctx_create;
+                }
+            } while (status == UCC_INPROGRESS);
+            if (ctx->addr_storage.rank == UCC_RANK_MAX) {
+                ucc_error("ctx_id not found in exchanged ids, rank detection "
+                          "failed");
+                status = UCC_ERR_NO_MESSAGE;
+                ucc_free(ctx->addr_storage.storage);
+                ctx->addr_storage.storage = NULL;
+                ctx->addr_storage.addr_len = 0;
+                goto error_ctx_create;
+            }
+            if (ctx->addr_storage.rank != params->oob.oob_ep) {
+                ucc_error("ctx_id exchange rank %d does not match OOB ep %d",
+                          ctx->addr_storage.rank, params->oob.oob_ep);
+                status = UCC_ERR_NO_MESSAGE;
+                ucc_free(ctx->addr_storage.storage);
+                ctx->addr_storage.storage = NULL;
+                ctx->addr_storage.addr_len = 0;
+                goto error_ctx_create;
+            }
+            status = ucc_context_topo_init(&ctx->addr_storage, &ctx->topo);
+            if (UCC_OK != status) {
+                ucc_free(ctx->addr_storage.storage);
+                ctx->addr_storage.storage = NULL;
+                ctx->addr_storage.addr_len = 0;
+                ucc_error("failed to init ctx topo");
+                goto error_ctx_create;
+            }
+            ucc_assert(ctx->topo != NULL);
+
+            memset(&set.map, 0, sizeof(ucc_ep_map_t));
+            set.map.type   = UCC_EP_MAP_FULL;
+            set.myrank     = params->oob.oob_ep;
+            set.map.ep_num = params->oob.n_oob_eps;
+
+            status = ucc_topo_init(set, ctx->topo, &topo);
+            if (UCC_OK != status) {
+                ucc_error("failed to init topo for computing local rank");
+                ucc_free(ctx->addr_storage.storage);
+                ctx->addr_storage.storage = NULL;
+                ctx->addr_storage.addr_len = 0;
+                goto error_ctx_create;
+            }
+            node_local_rank = ucc_topo_node_local_rank(topo);
+            if (node_local_rank == UCC_RANK_INVALID) {
+                node_local_rank = 0;
+            }
+            b_params.node_local_id = node_local_rank;
+            ucc_topo_cleanup(topo);
+
+            ctx_prefix_for_addr_exchange = 1;
+            ucc_context_topo_cleanup(ctx->topo);
+            ctx->topo = NULL;
+        }
+    }
+
     status = ucc_create_tl_contexts(ctx, config, b_params);
     if (UCC_OK != status) {
         /* only critical error could have happened - bail */
@@ -748,15 +1083,19 @@ ucc_status_t ucc_context_create_proc_info(
         ucc_error("failed to init progress queue for context %p", ctx);
         goto error_ctx_create;
     }
-    ctx->id.pi      = *proc_info;
-    ctx->id.seq_num = ucc_atomic_fadd32(&ucc_context_seq_num, 1);
+
     if (params->mask & UCC_CONTEXT_PARAM_FIELD_OOB &&
         params->oob.n_oob_eps > 1) {
         do {
             /* UCC context create is blocking fn, so we can wait here for the
                completion of addr exchange */
-            status = ucc_core_addr_exchange(ctx, &ctx->params.oob,
-                                            &ctx->addr_storage);
+            if (ctx_prefix_for_addr_exchange) {
+                status = ucc_core_addr_exchange_after_ctx_id(
+                    ctx, &ctx->params.oob, &ctx->addr_storage);
+            } else {
+                status = ucc_core_addr_exchange(ctx, &ctx->params.oob,
+                                                &ctx->addr_storage);
+            }
             if (status < 0) {
                 ucc_error("failed to exchange addresses during context "
                           "creation with status: %s",
@@ -765,77 +1104,37 @@ ucc_status_t ucc_context_create_proc_info(
             }
         } while (status == UCC_INPROGRESS);
 
-        if (topo_required) {
+        if (topo_required && !ctx->topo) {
             /* At least one available CL context reported it needs topo info */
             status = ucc_context_topo_init(&ctx->addr_storage, &ctx->topo);
             if (UCC_OK != status) {
                 ucc_error("failed to init ctx topo");
                 ucc_free(ctx->addr_storage.storage);
+                ctx->addr_storage.storage = NULL;
+                ctx->addr_storage.addr_len = 0;
                 goto error_ctx_create;
             }
         }
+        if (ctx->addr_storage.rank == UCC_RANK_MAX) {
+            ucc_error("ctx_id not found after address exchange, rank detection "
+                      "failed");
+            status = UCC_ERR_NO_MESSAGE;
+            goto error_ctx_create;
+        }
         ucc_assert(ctx->addr_storage.rank == params->oob.oob_ep);
     }
+
     if (config->internal_oob) {
-        if (params->mask & UCC_CONTEXT_PARAM_FIELD_OOB &&
-            params->oob.n_oob_eps > 1) {
-            ucc_base_team_params_t t_params;
-            ucc_base_team_t *      b_team;
-            status = ucc_tl_context_get(ctx, "ucp", &ctx->service_ctx);
-            if (UCC_OK != status) {
-                if (config->internal_oob == 2) {
-                    ucc_error(
-                        "TL UCP context is not available, service team can "
-                        "not be created but was force requested");
-                    goto error_ctx_create;
-                }
-                ucc_debug("TL UCP context is not available, "
-                          "service team can not be created");
+        status = ucc_context_create_service_team(params, ctx);
+        if (status != UCC_OK) {
+            if (config->internal_oob == 2) {
+                ucc_error(
+                    "UCC_INTERNAL_OOB was force requested but "
+                    "service team cannot be created");
+                goto error_ctx_create;
             } else {
-                memset(&t_params.map, 0, sizeof(ucc_ep_map_t));
-                memset(&t_params.params, 0, sizeof(ucc_team_params_t));
-                t_params.params.mask = UCC_TEAM_PARAM_FIELD_EP |
-                                       UCC_TEAM_PARAM_FIELD_EP_RANGE |
-                                       UCC_TEAM_PARAM_FIELD_OOB;
-                t_params.params.oob.allgather    = ctx->params.oob.allgather;
-                t_params.params.oob.req_test     = ctx->params.oob.req_test;
-                t_params.params.oob.req_free     = ctx->params.oob.req_free;
-                t_params.params.oob.coll_info    = ctx->params.oob.coll_info;
-                t_params.params.oob.n_oob_eps    = ctx->params.oob.n_oob_eps;
-                t_params.params.ep_range = UCC_COLLECTIVE_EP_RANGE_CONTIG;
-                t_params.params.ep       = ctx->rank;
-                t_params.rank            = ctx->rank;
-                t_params.size            = ctx->params.oob.n_oob_eps;
-                /* CORE scope id - never overlaps with CL type */
-                t_params.scope      = UCC_CL_LAST + 1;
-                t_params.scope_id   = 0;
-                t_params.id         = 0;
-                t_params.team       = NULL;
-                t_params.map.type   = UCC_EP_MAP_FULL;
-                t_params.map.ep_num = t_params.size;
-                status            = UCC_TL_CTX_IFACE(ctx->service_ctx)
-                             ->team.create_post(&ctx->service_ctx->super,
-                                                &t_params, &b_team);
-                if (UCC_OK != status) {
-                    ucc_error("ctx service team create post failed with status: %s",
-                              ucc_status_string(status));
-                    goto error_ctx_create;
-                }
-                do {
-                    status = UCC_TL_CTX_IFACE(ctx->service_ctx)
-                                 ->team.create_test(b_team);
-                } while (UCC_INPROGRESS == status);
-                if (status < 0) {
-                    ucc_error("failed to create ctx service team with status: %s",
-                              ucc_status_string(status));
-                    goto error_ctx_create;
-                }
-                ctx->service_team = ucc_derived_of(b_team, ucc_tl_team_t);
+                ucc_debug("context service team cannot be created");
             }
-        } else if (config->internal_oob == 2) {
-            ucc_error("UCC_INTERNAL_OOB was force requested for context "
-                      "without OOB");
-            goto error_ctx_create;
         }
     }
 
@@ -898,6 +1197,10 @@ error_ctx_create:
     }
     ucc_free(ctx->cl_ctx);
 error_ctx:
+    ucc_context_topo_cleanup(ctx->topo);
+    ctx->topo = NULL;
+    ucc_free(ctx->addr_storage.storage);
+    ctx->addr_storage.storage = NULL;
     ucc_free(ctx);
 error:
     return status;
@@ -1226,6 +1529,14 @@ ucc_status_t ucc_mem_map_import(ucc_context_h        context,
         ucc_error("cannot import NULL memory handle");
         return UCC_ERR_INVALID_PARAM;
     }
+    if (!*memh) {
+        ucc_error("cannot import NULL *memh");
+        return UCC_ERR_INVALID_PARAM;
+    }
+    if (!memh_size) {
+        ucc_error("memh_size cannot be NULL");
+        return UCC_ERR_INVALID_PARAM;
+    }
     if (!params) {
         ucc_error("params cannot be NULL");
         return UCC_ERR_INVALID_PARAM;
@@ -1235,6 +1546,7 @@ ucc_status_t ucc_mem_map_import(ucc_context_h        context,
 
     if (ctx->n_tl_ctx == 0) {
         ucc_debug("No TL contexts available for import");
+        local_memh->tl_h    = NULL;
         local_memh->mode    = mode;
         local_memh->context = ctx;
         *memh_size          = 0;
@@ -1244,7 +1556,8 @@ ucc_status_t ucc_mem_map_import(ucc_context_h        context,
     /* memh should have been used in exchanges or from a remote process,
        addresses, etc. likely garbage. fix it */
     local_memh->tl_h = (ucc_mem_map_tl_t *)ucc_calloc(
-        ctx->n_tl_ctx, sizeof(ucc_mem_map_tl_t), "tl memh");
+        ucc_max(ctx->n_tl_ctx, (int)local_memh->num_tls),
+        sizeof(ucc_mem_map_tl_t), "tl memh");
     if (!local_memh->tl_h) {
         ucc_error("failed to allocate tl memh for import");
         return UCC_ERR_NO_MEMORY;
@@ -1263,6 +1576,24 @@ ucc_status_t ucc_mem_map_import(ucc_context_h        context,
                     local_memh, &local_memh->tl_h[j]);
                 if (status < UCC_ERR_NOT_IMPLEMENTED) {
                     ucc_error("failed to import mem map memh %d", status);
+                    /* unmap slots that were successfully mapped using
+                       name-based matching (data is indexed by exporter slot) */
+                    for (int m = 0; m < (int)local_memh->num_tls; m++) {
+                        if (!local_memh->tl_h[m].tl_data) {
+                            continue;
+                        }
+                        for (int k = 0; k < ctx->n_tl_ctx; k++) {
+                            if (strcmp(local_memh->tl_h[m].tl_name,
+                                       tls->names[k]) == 0) {
+                                ucc_tl_lib_t *rl = ucc_derived_of(
+                                    ctx->tl_ctx[k]->super.lib, ucc_tl_lib_t);
+                                rl->iface->context.mem_unmap(
+                                    (const ucc_base_context_t *)ctx->tl_ctx[k],
+                                    mode, &local_memh->tl_h[m]);
+                                break;
+                            }
+                        }
+                    }
                     ucc_free(local_memh->tl_h);
                     return status;
                 }
@@ -1297,8 +1628,9 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
     int                       i;
     int                       tls;
     int                       tlh_index;
+    int                       n_buffers;
 
-    if (!params) {
+    if (mode != UCC_MEM_MAP_MODE_EXPORT_OFFLOAD && !params) {
         ucc_error("params cannot be NULL");
         return UCC_ERR_INVALID_PARAM;
     }
@@ -1354,7 +1686,8 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
         }
     }
     packed_buffers =
-        (void **)ucc_calloc(ctx->n_tl_ctx, sizeof(void *), "packed buffers");
+        (void **)ucc_calloc(ucc_max(ctx->n_tl_ctx, (int)local_memh->num_tls),
+                            sizeof(void *), "packed buffers");
     if (!packed_buffers) {
         if (mode == UCC_MEM_MAP_MODE_EXPORT) {
             ucc_free(local_memh->tl_h);
@@ -1402,7 +1735,9 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
         if (mode == UCC_MEM_MAP_MODE_EXPORT) {
             ucc_free(local_memh->tl_h);
             ucc_free(local_memh);
+            *memh = NULL;
         }
+        *memh_size = 0;
         return UCC_OK;
     }
 
@@ -1445,10 +1780,20 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
             }
         }
     } else {
-        exported_memh->tl_h = local_memh->tl_h;
+        exported_memh->tl_h = (ucc_mem_map_tl_t *)ucc_calloc(
+            packed_tls, sizeof(ucc_mem_map_tl_t), "packed tl memh");
+        if (!exported_memh->tl_h) {
+            ucc_error("failed to allocate handle for exported buffers' tl handles");
+            status = UCC_ERR_NO_MEMORY;
+            ucc_free(exported_memh);
+            goto failed_pack;
+        }
 
-        for (i = 0; i < local_memh->num_tls; i++) {
-            /* these are already packed in order */
+        for (i = 0, offset = 0, tls = 0; i < (int)local_memh->num_tls; i++) {
+            if (!local_memh->tl_h[i].packed_size) {
+                ucc_free(packed_buffers[i]);
+                continue;
+            }
             strncpy(PTR_OFFSET(exported_memh->pack_buffer, offset),
                    local_memh->tl_h[i].tl_name, UCC_MEM_MAP_TL_NAME_LEN);
             offset += UCC_MEM_MAP_TL_NAME_LEN;
@@ -1459,6 +1804,8 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
                    packed_buffers[i], local_memh->tl_h[i].packed_size);
             ucc_free(packed_buffers[i]);
             offset += local_memh->tl_h[i].packed_size;
+            memcpy(&exported_memh->tl_h[tls++], &local_memh->tl_h[i],
+                   sizeof(ucc_mem_map_tl_t));
         }
     }
 
@@ -1469,27 +1816,34 @@ ucc_status_t ucc_mem_map_export(ucc_context_h         context,
     exported_memh->num_tls     = packed_tls;
     *memh                      = exported_memh;
     *memh_size                 = sizeof(ucc_mem_map_memh_t) + offset;
-    if (mode == UCC_MEM_MAP_MODE_EXPORT) {
-        ucc_free(local_memh->tl_h);
-    }
+    ucc_free(local_memh->tl_h);
     ucc_free(local_memh);
     ucc_free(packed_buffers);
     return UCC_OK;
 failed_pack:
-    for (int j = 0; j < i; j++) {
+    /* buffers are indexed by tlh_index, which may differ from the tl ctx
+       index, so free the whole (calloc'd) array */
+    n_buffers = ucc_max(ctx->n_tl_ctx, (int)local_memh->num_tls);
+    for (int j = 0; j < n_buffers; j++) {
         ucc_free(packed_buffers[j]);
     }
+    ucc_free(packed_buffers);
     i = ctx->n_tl_ctx;
 failed_mem_map:
+    if (mode == UCC_MEM_MAP_MODE_EXPORT_OFFLOAD) {
+        /* no memory was mapped by this call and local_memh is owned by the
+           caller: unmapping here would tear down the caller's imported
+           mappings and free a handle we do not own. Leave *memh alone. */
+        *memh_size = 0;
+        return status;
+    }
     for (int j = 0; j < i; j++) {
-        tl_lib = ucc_derived_of(ctx->tl_ctx[i]->super.lib, ucc_tl_lib_t);
-        tl_lib->iface->context.mem_unmap((const ucc_base_context_t *)ctx,
-                                         UCC_MEM_MAP_MODE_EXPORT,
-                                         &local_memh->tl_h[j]);
+        tl_lib = ucc_derived_of(ctx->tl_ctx[j]->super.lib, ucc_tl_lib_t);
+        tl_lib->iface->context.mem_unmap(
+            (const ucc_base_context_t *)ctx->tl_ctx[j],
+            mode, &local_memh->tl_h[j]);
     }
-    if (mode == UCC_MEM_MAP_MODE_EXPORT) {
-        ucc_free(local_memh->tl_h);
-    }
+    ucc_free(local_memh->tl_h);
     ucc_free(local_memh);
     *memh      = NULL;
     *memh_size = 0;
@@ -1507,26 +1861,42 @@ ucc_status_t ucc_mem_map(ucc_context_h context, ucc_mem_map_mode_t mode,
     if (mode == UCC_MEM_MAP_MODE_IMPORT || mode == UCC_MEM_MAP_MODE_IMPORT_OFFLOAD) {
         return ucc_mem_map_import(context, mode, params, memh_size, memh);
     }
-    if (!params) {
-        ucc_error("params cannot be NULL");
+    if (!memh_size) {
+        ucc_error("memh_size cannot be NULL");
         return UCC_ERR_INVALID_PARAM;
     }
-    if (params->n_segments > 1) {
-        ucc_error("UCC only supports one mapping per call");
-        return UCC_ERR_INVALID_PARAM;
+    if (mode == UCC_MEM_MAP_MODE_EXPORT_OFFLOAD) {
+        if (!memh || !*memh) {
+            ucc_error("EXPORT_OFFLOAD requires a non-NULL *memh");
+            return UCC_ERR_INVALID_PARAM;
+        }
+    } else {
+        if (!params) {
+            ucc_error("params cannot be NULL");
+            return UCC_ERR_INVALID_PARAM;
+        }
+        if (params->n_segments != 1) {
+            ucc_error("UCC only supports one mapping per call");
+            return UCC_ERR_INVALID_PARAM;
+        }
+        if (!params->segments) {
+            ucc_error("params->segments cannot be NULL");
+            return UCC_ERR_INVALID_PARAM;
+        }
     }
     return ucc_mem_map_export(context, mode, params, memh_size, memh);
 }
 
 ucc_status_t ucc_mem_unmap(ucc_mem_map_mem_h *memh)
 {
+    ucc_status_t              status = UCC_OK;
     ucc_context_t            *ctx;
-    ucc_status_t              status;
     ucc_mem_map_memh_t       *lmemh;
     ucc_tl_lib_t             *tl_lib;
     int                       i;
     int                       j;
     ucc_config_names_array_t *tls;
+    ucc_status_t              s;
 
     if (!memh) {
         ucc_warn("unable to free NULL memh");
@@ -1538,28 +1908,27 @@ ucc_status_t ucc_mem_unmap(ucc_mem_map_mem_h *memh)
         return UCC_ERR_INVALID_PARAM;
     }
 
-    lmemh = *memh;
-    ctx   = (ucc_context_t *)lmemh->context;
-    tls   = &ctx->all_tls;
+    lmemh  = *memh;
+    ctx    = (ucc_context_t *)lmemh->context;
+    tls    = &ctx->all_tls;
     for (i = 0; i < ctx->n_tl_ctx; i++) {
         for (j = 0; j < lmemh->num_tls; j++) {
             if (strcmp(lmemh->tl_h[j].tl_name, tls->names[i]) == 0) {
                 tl_lib = ucc_derived_of(ctx->tl_ctx[i]->super.lib, ucc_tl_lib_t);
-                status = tl_lib->iface->context.mem_unmap(
+                s = tl_lib->iface->context.mem_unmap(
                     (const ucc_base_context_t *)ctx->tl_ctx[i], lmemh->mode,
                     &lmemh->tl_h[j]);
-                if (status < UCC_ERR_NOT_IMPLEMENTED) {
+                if (s < UCC_ERR_NOT_IMPLEMENTED) {
                     ucc_error("error during unmap operation on TL %s",
                               lmemh->tl_h[j].tl_name);
-                    return status;
+                    status = s;
                 }
             }
         }
     }
 
     /* Free the TL handles array if it was allocated separately */
-    if (lmemh->tl_h && (lmemh->mode == UCC_MEM_MAP_MODE_EXPORT ||
-                        lmemh->mode == UCC_MEM_MAP_MODE_IMPORT)) {
+    if (lmemh->tl_h) {
         ucc_free(lmemh->tl_h);
     }
 
@@ -1567,5 +1936,5 @@ ucc_status_t ucc_mem_unmap(ucc_mem_map_mem_h *memh)
     ucc_free(lmemh);
     *memh = NULL;
 
-    return UCC_OK;
+    return status;
 }

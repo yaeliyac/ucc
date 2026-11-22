@@ -63,9 +63,10 @@ ucc_cl_hier_allreduce_rab_frag_setup(ucc_schedule_pipelined_t *schedule_p,
         task->bargs.args.dst.info.count  = frag_count;
         task->bargs.args.dst.info.buffer =
             PTR_OFFSET(args->dst.info.buffer, frag_offset * dt_size);
+        /* args->root is undefined for allreduce, use root of the node reduce */
         if ((task->bargs.args.coll_type == UCC_COLL_TYPE_BCAST) ||
             (task->bargs.args.coll_type == UCC_COLL_TYPE_REDUCE && inplace &&
-             (SBGP_RANK(cl_team, NODE) != args->root))) {
+             (SBGP_RANK(cl_team, NODE) != task->bargs.args.root))) {
             task->bargs.args.src.info.buffer =
                 PTR_OFFSET(args->dst.info.buffer, frag_offset * dt_size);
         } else {
@@ -233,10 +234,18 @@ UCC_CL_HIER_PROFILE_FUNC(ucc_status_t, ucc_cl_hier_allreduce_rab_init,
     if (coll_args->args.op == UCC_OP_AVG) {
         return UCC_ERR_NOT_SUPPORTED;
     }
-    ucc_pipeline_nfrags_pdepth(&cfg->allreduce_rab_pipeline,
-                               coll_args->args.dst.info.count *
-                               ucc_dt_size(coll_args->args.dst.info.datatype),
-                               &n_frags, &pipeline_depth);
+    status = ucc_pipeline_nfrags_pdepth(
+        &cfg->allreduce_rab_pipeline,
+        coll_args->args.dst.info.count *
+            ucc_dt_size(coll_args->args.dst.info.datatype),
+        &n_frags,
+        &pipeline_depth);
+    if (ucc_unlikely(status != UCC_OK)) {
+        cl_error(
+            team->context->lib,
+            "invalid pipeline parameters for allreduce RAB");
+        return status;
+    }
 
     if (n_frags == 1) {
         return ucc_cl_hier_allreduce_rab_init_schedule(

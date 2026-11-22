@@ -62,7 +62,7 @@ typedef struct ucc_tl_ucp_lib_config {
     ucc_mrange_uint_t                  allreduce_kn_radix;
     ucc_mrange_uint_t                  allreduce_sra_kn_radix;
     uint32_t                           reduce_scatter_kn_radix;
-    ucc_mrange_uint_t                  allgather_kn_radix;
+    ucc_mrange_kn_radix_t              allgather_kn_radix;
     uint32_t                           bcast_kn_radix;
     ucc_mrange_uint_t                  bcast_sag_kn_radix;
     uint32_t                           reduce_kn_radix;
@@ -231,6 +231,7 @@ typedef struct ucc_tl_ucp_context {
     uint64_t                    n_rinfo_segs;
     uint64_t                    ucp_memory_types;
     int                         topo_required;
+    uint32_t                    n_teams;
     struct {
         ucc_tl_ucp_copy_post_fn_t     post;
         ucc_tl_ucp_copy_test_fn_t     test;

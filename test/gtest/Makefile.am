@@ -77,6 +77,7 @@ gtest_SOURCES =                           \
 	core/test_mc.cc                       \
 	core/test_mc_reduce.cc                \
 	core/test_team.cc                     \
+	core/test_team_id_pool.cc             \
 	core/test_schedule.cc                 \
 	core/test_topo.cc                     \
 	core/test_service_coll.cc             \
@@ -88,6 +89,7 @@ gtest_SOURCES =                           \
 	coll/test_alltoallv.cc                \
 	coll/test_allgather.cc                \
 	coll/test_allgatherv.cc               \
+	coll/test_knomial_seq.cc              \
 	coll/test_gather.cc                   \
 	coll/test_gatherv.cc                  \
 	coll/test_bcast.cc                    \
@@ -101,6 +103,7 @@ gtest_SOURCES =                           \
 	utils/test_string.cc                  \
 	utils/test_ep_map.cc                  \
 	utils/test_lock_free_queue.cc         \
+	utils/test_alltoall_pairwise_num_posts.cc \
 	utils/test_math.cc                    \
 	utils/test_cfg_file.cc                \
 	utils/test_parser.cc                  \

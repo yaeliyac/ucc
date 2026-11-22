@@ -7,6 +7,7 @@
 #include "ucc_sbgp.h"
 #include "utils/ucc_proc_info.h"
 #include "utils/ucc_coll_utils.h"
+#include "utils/arch/cpu.h"
 
 /* Topo data structure initialized per UCC context.
    key elements of this struct are the arrays of ucc_proc_info_t and
@@ -83,6 +84,12 @@ typedef struct ucc_topo {
     ucc_rank_t   max_numa_size; /*< max number of processes on a numa,
                                     across all nodes of a team */
     ucc_device_map_t device_map; /*< map of team ranks to device indices */
+    ucc_cpu_vendor_t cpu_vendor;  /*< CPU vendor shared by all team members,
+                                      or UCC_CPU_VENDOR_UNKNOWN if the team is
+                                      CPU-heterogeneous. Used to keep config-file
+                                      tuning selection symmetric across ranks. */
+    ucc_cpu_model_t  cpu_model;   /*< CPU model shared by all team members,
+                                      or UCC_CPU_MODEL_UNKNOWN if heterogeneous */
 } ucc_topo_t;
 
 /* Initializes ctx level topo structure using addr_storage.
@@ -290,6 +297,21 @@ static inline ucc_rank_t ucc_topo_nnodes(ucc_topo_t *topo)
     return sbgp->group_size;
 }
 
+static inline ucc_rank_t ucc_topo_node_local_rank(ucc_topo_t *topo)
+{
+    ucc_sbgp_t *sbgp;
+
+    if (!topo) {
+        return UCC_RANK_INVALID;
+    }
+    sbgp = ucc_topo_get_sbgp(topo, UCC_SBGP_NODE);
+
+    if (sbgp->status != UCC_SBGP_ENABLED) {
+        return UCC_RANK_INVALID;
+    }
+    return sbgp->group_rank;
+}
+
 /* Returns node leaders array - array that maps each rank to the TEAM RANK that
    is the leader of that rank's node. Also returns per-node leaders array - array
    mapping node_id to the TEAM RANK of that node's leader */
@@ -332,11 +354,19 @@ int ucc_topo_is_nvlink_fully_connected(
  * @brief Checks if all ranks in the topology subset share the same
  *        NVLink fabric domain (required for multinode NVLS/NVLink-SHARP).
  *
- * Iterates all ranks in topo->set and verifies that every rank has
- * UCC_GPU_CAP_FABRIC set and an identical valid fabric_clique_id.
- * A fabric_clique_id of UCC_GPU_FABRIC_CLIQUE_ID_INVALID is treated as
- * "unknown / not populated" and
- * causes the function to return 0 immediately.
+ * Iterates all ranks in topo->set and verifies that every rank has:
+ *   - UCC_GPU_CAP_FABRIC set
+ *   - a non-all-zero fabric_cluster_uuid that matches rank 0's
+ *   - identical valid fabric_clique_id
+ *   - matching fabric_partition_id when populated (GB200+ NVL)
+ *
+ * Any of the following causes the function to return 0:
+ *   - fabric_clique_id == UCC_GPU_FABRIC_CLIQUE_ID_INVALID ("unknown /
+ *     not populated", e.g. NVML reports state != COMPLETED)
+ *   - all-zero fabric_cluster_uuid (NVML reports clusterUuid as zero
+ *     even with state == COMPLETED on standalone fabric-capable nodes;
+ *     the cliqueId/partitionId pair is not globally unique in that case
+ *     and could falsely match across unrelated clusters)
  *
  * @param [in] topo   Pointer to the topology structure.
  *

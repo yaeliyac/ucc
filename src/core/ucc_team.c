@@ -73,6 +73,18 @@ static ucc_status_t ucc_team_create_post_single(ucc_context_t *context,
         team->bp.params.mask |= UCC_TEAM_PARAM_FIELD_OOB;
     }
 
+    /* A team of size > 1 needs an OOB to bootstrap its TL teams (address
+       exchange, etc.). It comes either from the
+       context service team (above) or from a user-provided team OOB. If
+       neither is available - e.g. the service team could not be created
+       because tl/ucp failed on some ranks - the team cannot be created. */
+    if (team->size > 1 && !(team->bp.params.mask & UCC_TEAM_PARAM_FIELD_OOB)) {
+        ucc_error("cannot create team of size %d: no OOB available (context "
+                  "service team unavailable and no team OOB provided)",
+                  team->size);
+        return UCC_ERR_NO_RESOURCE;
+    }
+
     team->cl_teams = ucc_malloc(sizeof(ucc_cl_team_t *) * context->n_cl_ctx);
     if (!team->cl_teams) {
         ucc_error("failed to allocate %zd bytes for cl teams array",
@@ -556,8 +568,8 @@ ucc_status_t ucc_team_destroy(ucc_team_h team)
     return ucc_team_destroy_single(team);
 }
 
-static inline int
-find_first_set_and_zero(uint64_t *value) {
+int ucc_team_id_pool_ffs_clear(uint64_t *value)
+{
     int i;
     for (i=0; i<64; i++) {
         if (*value & ((uint64_t)1 << i)) {
@@ -568,11 +580,14 @@ find_first_set_and_zero(uint64_t *value) {
     return 0;
 }
 
-static inline void
-set_id_bit(uint64_t *local, int id) {
-    int map_pos = id / 64;
-    int pos = (id-1) % 64;
+void ucc_team_id_pool_set_bit(uint64_t *local, int id)
+{
+    int map_pos;
+    int pos;
+
     ucc_assert(id >= 1);
+    map_pos = (id-1) / 64;
+    pos     = (id-1) % 64;
     local[map_pos] |= ((uint64_t)1 << pos);
 }
 
@@ -628,7 +643,7 @@ static ucc_status_t ucc_team_alloc_id(ucc_team_t *team)
     memcpy(local, global, ctx->ids.pool_size*sizeof(uint64_t));
     pos = 0;
     for (i=0; i<ctx->ids.pool_size; i++) {
-        if ((pos = find_first_set_and_zero(&local[i])) > 0) {
+        if ((pos = ucc_team_id_pool_ffs_clear(&local[i])) > 0) {
             break;
         }
     }
@@ -650,6 +665,6 @@ static void ucc_team_release_id(ucc_team_t *team)
     ucc_context_t *ctx = team->contexts[0];
     /* release the id pool bit if it was not provided by user */
     if (0 != team->id && !UCC_TEAM_ID_IS_EXTERNAL(team)) {
-        set_id_bit(ctx->ids.pool, team->id);
+        ucc_team_id_pool_set_bit(ctx->ids.pool, team->id);
     }
 }

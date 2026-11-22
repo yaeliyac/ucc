@@ -57,6 +57,10 @@ typedef struct ucc_team {
 
 void ucc_copy_team_params(ucc_team_params_t *dst, const ucc_team_params_t *src);
 
+/* Team-id pool bit helpers; bit (pos - 1) of word i encodes id i * 64 + pos */
+int  ucc_team_id_pool_ffs_clear(uint64_t *value);
+void ucc_team_id_pool_set_bit(uint64_t *local, int id);
+
 /* Returns addressing information for "rank" in a team.
    If ucc context was created with OOB then addr storage is located on context.
    In that case we need to map rank to ctx_rank first. Otherwise, addr
@@ -81,7 +85,9 @@ ucc_get_team_ep_header(ucc_context_t *context, ucc_team_t *team,
 
 /* Gets the component specific address of rank in a team.
    First we get the header, and then find the component address
-   by offset */
+   by offset.
+   Returns NULL if the requested component is not present in the peer's
+   packed address. */
 static inline void *ucc_get_team_ep_addr(ucc_context_t *context,
                                          ucc_team_t *team, ucc_rank_t rank,
                                          unsigned long component_id)
@@ -96,7 +102,6 @@ static inline void *ucc_get_team_ep_addr(ucc_context_t *context,
             break;
         }
     }
-    ucc_assert(NULL != addr);
     return addr;
 }
 

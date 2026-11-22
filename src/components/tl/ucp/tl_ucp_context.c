@@ -4,17 +4,14 @@
  * See file LICENSE for terms.
  */
 
+#include <limits.h>
 #include "tl_ucp.h"
 #include "tl_ucp_tag.h"
-#include "tl_ucp_coll.h"
 #include "tl_ucp_ep.h"
 #include "utils/ucc_math.h"
 #include "utils/ucc_string.h"
 #include "utils/arch/cpu.h"
-#include "schedule/ucc_schedule_pipelined.h"
 #include "tl_ucp_copy.h"
-#include <limits.h>
-
 #include "tl_ucp_sendrecv.h"
 
 #define UCP_CHECK(function, msg, go, ctx)                                      \
@@ -136,6 +133,45 @@ err_cfg_read:
         ucc_free(service_prefix);
     }
     return ucc_status;
+}
+
+ucc_status_t ucc_tl_ucp_rinfo_destroy(ucc_tl_ucp_context_t *ctx)
+{
+    ucc_rank_t size = UCC_TL_CTX_OOB(ctx).n_oob_eps;
+    int        i, j;
+
+    for (i = 0; i < size; i++) {
+        for (j = 0; j < ctx->n_rinfo_segs; j++) {
+            if (UCC_TL_UCP_REMOTE_RKEY(ctx, i, j)) {
+                ucp_rkey_destroy(UCC_TL_UCP_REMOTE_RKEY(ctx, i, j));
+            }
+        }
+    }
+    for (i = 0; i < ctx->n_rinfo_segs; i++) {
+        if (ctx->remote_info[i].mem_h) {
+            ucp_mem_unmap(ctx->worker.ucp_context, ctx->remote_info[i].mem_h);
+        }
+        if (ctx->remote_info[i].packed_key) {
+            ucp_rkey_buffer_release(ctx->remote_info[i].packed_key);
+        }
+    }
+    ucc_free(ctx->remote_info);
+    ucc_free(ctx->rkeys);
+    ctx->remote_info = NULL;
+    ctx->rkeys       = NULL;
+
+    return UCC_OK;
+}
+
+static inline void ucc_tl_ucp_eps_cleanup(ucc_tl_ucp_worker_t * worker,
+                                          ucc_tl_ucp_context_t *ctx)
+{
+    ucc_tl_ucp_close_eps(worker, ctx);
+    if (worker->eps) {
+        ucc_free(worker->eps);
+    } else {
+        kh_destroy(tl_ucp_ep_hash, worker->ep_hash);
+    }
 }
 
 UCC_CLASS_INIT_FUNC(ucc_tl_ucp_context_t,
@@ -304,31 +340,32 @@ UCC_CLASS_INIT_FUNC(ucc_tl_ucp_context_t,
                         params->context,
                         (ucc_context_progress_fn_t)ucp_worker_progress,
                         self->worker.ucp_worker),
-          "failed to register progress function", err_thread_mode,
+          "failed to register progress function", err_mpool,
           UCC_ERR_NO_MESSAGE, self);
 
     self->remote_info  = NULL;
     self->n_rinfo_segs = 0;
     self->rkeys        = NULL;
+    self->n_teams      = 0;
     if (params->params.mask & UCC_CONTEXT_PARAM_FIELD_MEM_PARAMS &&
         params->params.mask & UCC_CONTEXT_PARAM_FIELD_OOB) {
         ucc_status = ucc_tl_ucp_ctx_remote_populate(
             self, params->params.mem_params, params->params.oob);
         if (UCC_OK != ucc_status) {
             tl_error(self->super.super.lib, "failed to gather RMA information");
-            goto err_thread_mode;
+            goto err_progress_register;
         }
     }
 
     CHECK(UCC_OK != ucc_tl_ucp_eps_ephash_init(
                         params, self, &self->worker.ep_hash, &self->worker.eps),
-          "failed to allocate memory for endpoint storage", err_thread_mode,
-          UCC_ERR_NO_MESSAGE, self);
+          "failed to allocate memory for endpoint storage",
+          err_rinfo, UCC_ERR_NO_MESSAGE, self);
 
     if (self->cfg.service_worker) {
         CHECK(UCC_OK != ucc_tl_ucp_context_service_init(
                             prefix, ucp_params, worker_params, params, self),
-              "failed to init service worker", err_cfg, UCC_ERR_NO_MESSAGE,
+              "failed to init service worker", err_ephash, UCC_ERR_NO_MESSAGE,
               self);
     }
     ucc_free(prefix);
@@ -367,6 +404,18 @@ UCC_CLASS_INIT_FUNC(ucc_tl_ucp_context_t,
     tl_debug(self->super.super.lib, "initialized tl context: %p", self);
     return UCC_OK;
 
+err_ephash:
+    ucc_tl_ucp_eps_cleanup(&self->worker, self);
+err_rinfo:
+    if (self->remote_info) {
+        ucc_tl_ucp_rinfo_destroy(self);
+    }
+err_progress_register:
+    ucc_context_progress_deregister(
+        params->context, (ucc_context_progress_fn_t)ucp_worker_progress,
+        self->worker.ucp_worker);
+err_mpool:
+    ucc_mpool_cleanup(&self->req_mp, 1);
 err_thread_mode:
     ucp_worker_destroy(ucp_worker);
 err_worker_create:
@@ -419,45 +468,6 @@ static void ucc_tl_ucp_context_barrier(ucc_tl_ucp_context_t *ctx,
     ucc_free(rbuf);
 }
 
-ucc_status_t ucc_tl_ucp_rinfo_destroy(ucc_tl_ucp_context_t *ctx)
-{
-    ucc_rank_t size = UCC_TL_CTX_OOB(ctx).n_oob_eps;
-    int        i, j;
-
-    for (i = 0; i < size; i++) {
-        for (j = 0; j < ctx->n_rinfo_segs; j++) {
-            if (UCC_TL_UCP_REMOTE_RKEY(ctx, i, j)) {
-                ucp_rkey_destroy(UCC_TL_UCP_REMOTE_RKEY(ctx, i, j));
-            }
-        }
-    }
-    for (i = 0; i < ctx->n_rinfo_segs; i++) {
-        if (ctx->remote_info[i].mem_h) {
-            ucp_mem_unmap(ctx->worker.ucp_context, ctx->remote_info[i].mem_h);
-        }
-        if (ctx->remote_info[i].packed_key) {
-            ucp_rkey_buffer_release(ctx->remote_info[i].packed_key);
-        }
-    }
-    ucc_free(ctx->remote_info);
-    ucc_free(ctx->rkeys);
-    ctx->remote_info = NULL;
-    ctx->rkeys       = NULL;
-
-    return UCC_OK;
-}
-
-static inline void ucc_tl_ucp_eps_cleanup(ucc_tl_ucp_worker_t * worker,
-                                          ucc_tl_ucp_context_t *ctx)
-{
-    ucc_tl_ucp_close_eps(worker, ctx);
-    if (worker->eps) {
-        ucc_free(worker->eps);
-    } else {
-        kh_destroy(tl_ucp_ep_hash, worker->ep_hash);
-    }
-}
-
 static inline void ucc_tl_ucp_worker_cleanup(ucc_tl_ucp_worker_t worker)
 {
     if (worker.worker_address) {
@@ -488,9 +498,14 @@ UCC_CLASS_CLEANUP_FUNC(ucc_tl_ucp_context_t)
     if (self->cfg.service_worker != 0) {
         ucc_tl_ucp_eps_cleanup(&self->service_worker, self);
     }
-    if (UCC_TL_CTX_HAS_OOB(self)) {
+
+    if (UCC_TL_CTX_HAS_OOB(self) && self->n_teams > 0) {
+        /* Only barrier if at least one team was created on this context. If
+           none was, no cross-rank UCP communication happened, so the barrier
+           is unnecessary. */
         ucc_tl_ucp_context_barrier(self, &UCC_TL_CTX_OOB(self));
     }
+
     ucc_tl_ucp_worker_cleanup(self->worker);
     if (self->cfg.service_worker != 0) {
         ucc_tl_ucp_worker_cleanup(self->service_worker);
@@ -541,24 +556,33 @@ ucc_status_t ucc_tl_ucp_ctx_remote_populate(ucc_tl_ucp_context_t * ctx,
     int                  i;
 
     if (size < 2) {
+        /* Single endpoint: there are no remote peers to exchange RMA */
+        tl_debug(
+            ctx->super.super.lib,
+            "skipping remote RMA exchange for single endpoint "
+            "(n_oob_eps=%d)",
+            size);
+        return UCC_OK;
+    }
+
+    if (nsegs > MAX_NR_SEGMENTS) {
         tl_error(
             ctx->super.super.lib,
-            "oob.n_oob_eps set to incorrect value for remote exchange (%d)",
-            size);
+            "cannot map more than %d segments",
+            MAX_NR_SEGMENTS);
         return UCC_ERR_INVALID_PARAM;
     }
-    if (nsegs > MAX_NR_SEGMENTS) {
-        tl_error(ctx->super.super.lib, "cannot map more than %d segments",
-                 MAX_NR_SEGMENTS);
-        return UCC_ERR_INVALID_PARAM;
-    }
-    ctx->rkeys =
-        (ucp_rkey_h *)ucc_calloc(sizeof(ucp_rkey_h), nsegs * size, "ucp_ctx_rkeys");
+
+    ctx->rkeys = (ucp_rkey_h *)ucc_calloc(
+        sizeof(ucp_rkey_h), nsegs * size, "ucp_ctx_rkeys");
     if (NULL == ctx->rkeys) {
-        tl_error(ctx->super.super.lib, "failed to allocated %zu bytes",
-                 sizeof(ucp_rkey_h) * nsegs * size);
+        tl_error(
+            ctx->super.super.lib,
+            "failed to allocated %zu bytes",
+            sizeof(ucp_rkey_h) * nsegs * size);
         return UCC_ERR_NO_MEMORY;
     }
+
     ctx->remote_info = (ucc_tl_ucp_remote_info_t *)ucc_calloc(
         nsegs, sizeof(ucc_tl_ucp_remote_info_t), "ucp_remote_info");
     if (NULL == ctx->remote_info) {
@@ -716,8 +740,7 @@ ucc_status_t ucc_tl_ucp_mem_map_offload_import(ucc_tl_ucp_context_t *ctx,
         if (strncmp(tl_h->tl_name, name, UCC_MEM_MAP_TL_NAME_LEN - 1) == 0) {
             break;
         }
-        /* this is not the index, skip this section of buffer if exists */
-        offset += *packed_size;
+        offset += UCC_MEM_MAP_TL_NAME_LEN + sizeof(size_t) + *packed_size;
     }
     if (i == l_memh->num_tls) {
         tl_error(ctx->super.super.lib, "unable to find TL UCP in memory handle");
@@ -759,6 +782,7 @@ ucc_status_t ucc_tl_ucp_mem_map(const ucc_base_context_t *context, ucc_mem_map_m
         if (UCC_OK != ucc_status) {
             tl_error(ctx->super.super.lib, "failed to export memory handles");
             ucc_free(m_data);
+            tl_h->tl_data = NULL;
             return ucc_status;
         }
     } else if (mode == UCC_MEM_MAP_MODE_IMPORT_OFFLOAD) {
@@ -767,6 +791,7 @@ ucc_status_t ucc_tl_ucp_mem_map(const ucc_base_context_t *context, ucc_mem_map_m
         if (UCC_OK != ucc_status) {
             tl_error(ctx->super.super.lib, "failed to import memory handle");
             ucc_free(m_data);
+            tl_h->tl_data = NULL;
             return ucc_status;
         }
     }
@@ -785,6 +810,9 @@ ucc_status_t ucc_tl_ucp_mem_unmap(const ucc_base_context_t *context, ucc_mem_map
     }
 
     data = (ucc_tl_ucp_memh_data_t *)memh->tl_data;
+    if (!data) {
+        return UCC_OK;
+    }
     if (mode == UCC_MEM_MAP_MODE_EXPORT || mode == UCC_MEM_MAP_MODE_EXPORT_OFFLOAD) {
         status = ucp_mem_unmap(ctx->worker.ucp_context, data->rinfo.mem_h);
         if (status != UCS_OK) {
@@ -802,7 +830,16 @@ ucc_status_t ucc_tl_ucp_mem_unmap(const ucc_base_context_t *context, ucc_mem_map
             data->rinfo.packed_key = NULL;
         }
     } else if (mode == UCC_MEM_MAP_MODE_IMPORT || mode == UCC_MEM_MAP_MODE_IMPORT_OFFLOAD) {
-        // need to free rkeys (data->rkey) , packed memh (data->packed_memh)
+        ucc_status_t ret = UCC_OK;
+        if (mode == UCC_MEM_MAP_MODE_IMPORT_OFFLOAD && data->rinfo.mem_h) {
+            ucs_status_t ucs_st = ucp_mem_unmap(ctx->worker.ucp_context,
+                                                 data->rinfo.mem_h);
+            if (ucs_st != UCS_OK) {
+                tl_error(ctx->super.super.lib,
+                         "ucp_mem_unmap (import offload) failed: %d", ucs_st);
+                ret = ucs_status_to_ucc_status(ucs_st);
+            }
+        }
         if (data->packed_memh) {
             ucp_memh_buffer_release(data->packed_memh, NULL);
         }
@@ -811,6 +848,11 @@ ucc_status_t ucc_tl_ucp_mem_unmap(const ucc_base_context_t *context, ucc_mem_map
         }
         if (data->rkey) {
             ucp_rkey_destroy(data->rkey);
+        }
+        if (ret != UCC_OK) {
+            ucc_free(data);
+            memh->tl_data = NULL;
+            return ret;
         }
     } else {
         ucc_error("Unknown mem map mode entered: %d", mode);
@@ -872,7 +914,7 @@ ucc_status_t ucc_tl_ucp_memh_pack(const ucc_base_context_t *context,
      *
      * packed_key_size | packed_memh_size | packed_key | packed_memh
      */
-    packed_buffer = ucc_malloc(sizeof(size_t) * 2 + data->packed_memh_len +
+    packed_buffer = ucc_malloc(UCC_TL_UCP_MEMH_TL_HEADER_SIZE + data->packed_memh_len +
                                    data->rinfo.packed_key_len,
                                "packed buffer");
     if (!packed_buffer) {
@@ -899,9 +941,11 @@ ucc_status_t ucc_tl_ucp_memh_pack(const ucc_base_context_t *context,
 
 failed_alloc_buffer:
     ucp_rkey_buffer_release(data->rinfo.packed_key);
+    data->rinfo.packed_key = NULL;
 failed_rkey_pack:
     if (data->packed_memh) {
         ucp_memh_buffer_release(data->packed_memh, NULL);
+        data->packed_memh = NULL;
     }
     return ucc_status;
 }
